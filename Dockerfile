@@ -3,7 +3,7 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm ci --registry=https://registry.npmmirror.com
 
 COPY frontend/ ./
 RUN npm run build
@@ -15,7 +15,7 @@ WORKDIR /app
 
 # Install Python deps
 COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
 
 # Copy backend
 COPY backend/ ./
