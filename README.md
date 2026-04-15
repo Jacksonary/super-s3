@@ -139,10 +139,10 @@ docker build -t super-s3 .
 
 docker run -d \
   --name super-s3 \
-  -p 8080:8080 \
-  -v /absolute/path/to/config.yaml:/config/config.yaml:ro \
+  -p 7998:8080 \
+  -v /usr/local/docker-data/super-s3/config.yaml:/config/config.yaml:ro \
   --restart unless-stopped \
-  super-s3
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:v1.0.0
 ```
 
 ### 修改端口
