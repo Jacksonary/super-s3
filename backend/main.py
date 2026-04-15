@@ -55,15 +55,20 @@ def _provider_name(endpoint: str) -> str:
 
 
 def make_client(account: dict):
+    endpoint = account.get("endpoint") or ""
+    ep = endpoint.lower()
+    # TOS requires virtual-hosted style; path-style returns InvalidPathAccess
+    is_tos = "volces.com" in ep or "volcengineapi" in ep or "tos-s3" in ep
+    addressing_style = "virtual" if is_tos else "path"
     return boto3.client(
         "s3",
         aws_access_key_id=account["ak"],
         aws_secret_access_key=account["sk"],
-        endpoint_url=account.get("endpoint") or None,
+        endpoint_url=endpoint or None,
         region_name=account.get("region", "us-east-1"),
         config=Config(
             signature_version="s3v4",
-            s3={"addressing_style": "path"},
+            s3={"addressing_style": addressing_style},
             retries={"max_attempts": 3, "mode": "standard"},
         ),
     )

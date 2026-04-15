@@ -142,7 +142,7 @@ docker run -d \
   -p 7998:8080 \
   -v /usr/local/docker-data/super-s3/config.yaml:/config/config.yaml:ro \
   --restart unless-stopped \
-  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:v1.0.0
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:v1.0.1
 ```
 
 ### 修改端口
