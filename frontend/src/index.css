@@ -1,0 +1,57 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #bfbfbf;
+}
+
+/* Sidebar tree */
+.sidebar-tree .ant-tree-node-content-wrapper {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Object table row hover */
+.obj-table .ant-table-row:hover .row-actions {
+  opacity: 1;
+}
+.row-actions {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+/* Drag overlay */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(22, 119, 255, 0.08);
+  border: 2px dashed #1677ff;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #1677ff;
+  font-weight: 500;
+  z-index: 100;
+  pointer-events: none;
+}
