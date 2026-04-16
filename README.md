@@ -46,7 +46,7 @@ docker run -d \
   -v $(pwd)/config.yaml:/config/config.yaml \
   -e CONFIG_PATH=/config/config.yaml \
   --restart unless-stopped \
-  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.0.6
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.6.0
 ```
 
 访问 <http://localhost:8080> 即可使用。
@@ -127,7 +127,7 @@ docker compose up -d
 `docker-compose.yml` 默认使用本地构建镜像。如需直接使用预构建镜像，将文件中的 `build: .` 替换为：
 
 ```yaml
-image: registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.0.6
+image: registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.6.0
 ```
 
 重新加载配置（修改 config.yaml 后重启即可）：
@@ -147,7 +147,7 @@ docker run -d \
   -v $(pwd)/config.yaml:/config/config.yaml \
   -e CONFIG_PATH=/config/config.yaml \
   --restart unless-stopped \
-  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.0.6
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.6.0
 ```
 
 ---
