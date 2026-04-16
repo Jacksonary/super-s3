@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Layout, theme, Typography, Empty } from "antd";
+import { Layout, theme, Typography, Empty, ConfigProvider } from "antd";
 import { Sidebar } from "./components/Sidebar";
 import { ObjectBrowser } from "./components/ObjectBrowser";
 import type { SelectedBucket } from "./types";
@@ -7,7 +7,12 @@ import type { SelectedBucket } from "./types";
 const { Sider, Content } = Layout;
 const { Text } = Typography;
 
-export default function App() {
+interface AppContentProps {
+  isDark: boolean;
+  onThemeToggle: () => void;
+}
+
+function AppContent({ isDark, onThemeToggle }: AppContentProps) {
   const { token } = theme.useToken();
   const [selected, setSelected] = useState<SelectedBucket | null>(null);
 
@@ -25,16 +30,16 @@ export default function App() {
           top: 0,
         }}
       >
-        <Sidebar selected={selected} onSelect={setSelected} />
+        <Sidebar
+          selected={selected}
+          onSelect={setSelected}
+          isDark={isDark}
+          onThemeToggle={onThemeToggle}
+        />
       </Sider>
 
       <Layout style={{ marginLeft: 240 }}>
-        <Content
-          style={{
-            background: token.colorBgLayout,
-            minHeight: "100vh",
-          }}
-        >
+        <Content style={{ background: token.colorBgLayout, minHeight: "100vh" }}>
           {selected ? (
             <ObjectBrowser key={`${selected.accountId}-${selected.bucket}`} target={selected} />
           ) : (
@@ -61,5 +66,25 @@ export default function App() {
         </Content>
       </Layout>
     </Layout>
+  );
+}
+
+export default function App() {
+  const [isDark, setIsDark] = useState(
+    () => localStorage.getItem("theme") === "dark"
+  );
+
+  const toggleTheme = () => {
+    const next = !isDark;
+    setIsDark(next);
+    localStorage.setItem("theme", next ? "dark" : "light");
+  };
+
+  return (
+    <ConfigProvider
+      theme={{ algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm }}
+    >
+      <AppContent isDark={isDark} onThemeToggle={toggleTheme} />
+    </ConfigProvider>
   );
 }
