@@ -46,6 +46,7 @@ export interface ListResult {
 export interface SearchResult {
   items: ObjectItem[];
   is_truncated: boolean;
+  next_continuation_token: string | null;
 }
 
 export interface DeleteResult {

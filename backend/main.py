@@ -1,4 +1,6 @@
 import os
+import re
+from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 from typing import Optional, List
 
@@ -25,6 +27,7 @@ app.add_middleware(
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/config.yaml")
 
 # ─── Config ──────────────────────────────────────────────────────────────────
+
 
 def load_config() -> list:
     with open(CONFIG_PATH, "r") as f:
@@ -97,7 +100,9 @@ def put_config(accounts: list = Body(...)):
         with open(CONFIG_PATH, "w") as f:
             yaml.dump(accounts, f, allow_unicode=True, sort_keys=False)
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to write config: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to write config: {e}"
+        )
     return {"ok": True}
 
 
@@ -217,15 +222,19 @@ def search_objects(
     q: str = Query(...),
     prefix: str = "",
     limit: int = Query(default=200, le=500),
+    continuation_token: Optional[str] = None,
 ):
-    """Recursive prefix search – no delimiter."""
+    """Recursive prefix search – no delimiter, cursor-based pagination."""
     try:
         client = get_client(account_idx)
-        resp = client.list_objects_v2(
-            Bucket=bucket,
-            Prefix=prefix + q,
-            MaxKeys=limit,
-        )
+        kwargs: dict = {
+            "Bucket": bucket,
+            "Prefix": prefix + q,
+            "MaxKeys": limit,
+        }
+        if continuation_token:
+            kwargs["ContinuationToken"] = continuation_token
+        resp = client.list_objects_v2(**kwargs)
         items = [
             {
                 "key": obj["Key"],
@@ -238,7 +247,11 @@ def search_objects(
             }
             for obj in resp.get("Contents", [])
         ]
-        return {"items": items, "is_truncated": resp.get("IsTruncated", False)}
+        return {
+            "items": items,
+            "is_truncated": resp.get("IsTruncated", False),
+            "next_continuation_token": resp.get("NextContinuationToken"),
+        }
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -258,10 +271,13 @@ def delete_objects(account_idx: int, bucket: str, req: DeleteRequest):
         errors = []
         deleted = 0
         for i in range(0, len(req.keys), 1000):
-            batch = req.keys[i : i + 1000]
+            batch = req.keys[i:i + 1000]
             resp = client.delete_objects(
                 Bucket=bucket,
-                Delete={"Objects": [{"Key": k} for k in batch], "Quiet": False},
+                Delete={
+                    "Objects": [{"Key": k} for k in batch],
+                    "Quiet": False,
+                },
             )
             deleted += len(batch) - len(resp.get("Errors", []))
             errors.extend(resp.get("Errors", []))
@@ -288,12 +304,16 @@ def download_object(account_idx: int, bucket: str, key: str = Query(...)):
                 yield chunk
 
         headers = {
-            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}",
+            "Content-Disposition": (
+                f"attachment; filename*=UTF-8''{encoded_name}"
+            ),
         }
         if content_length:
             headers["Content-Length"] = content_length
 
-        return StreamingResponse(stream(), media_type=content_type, headers=headers)
+        return StreamingResponse(
+            stream(), media_type=content_type, headers=headers
+        )
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -366,7 +386,32 @@ def object_meta(account_idx: int, bucket: str, key: str = Query(...)):
     try:
         client = get_client(account_idx)
         resp = client.head_object(Bucket=bucket, Key=key)
-        expires = resp.get("Expires")
+
+        # Resolve lifecycle expiry across providers.
+        # AWS S3 maps x-amz-expiration → resp["Expiration"].
+        # OBS/OSS/TOS use vendor-specific headers that boto3 does NOT auto-map,
+        # so we read them directly from ResponseMetadata.
+        raw_headers = resp.get("ResponseMetadata", {}).get("HTTPHeaders", {})
+        expiration_str = (
+            resp.get("Expiration")                          # AWS S3
+            or raw_headers.get("x-obs-expiration", "")     # 华为云 OBS
+            or raw_headers.get("x-oss-expiration", "")     # 阿里云 OSS
+            or raw_headers.get("x-tos-expiration", "")     # 火山云 TOS
+        )
+        expire_iso = None
+        if expiration_str:
+            m = re.search(r'expiry-date="([^"]+)"', expiration_str)
+            if m:
+                try:
+                    expire_iso = parsedate_to_datetime(m.group(1)).isoformat()
+                except Exception:
+                    expire_iso = m.group(1)
+        # Fallback: HTTP cache Expires header (rarely set, but handle it)
+        if not expire_iso:
+            http_expires = resp.get("Expires")
+            if http_expires and hasattr(http_expires, "isoformat"):
+                expire_iso = http_expires.isoformat()
+
         return {
             "content_type": resp.get("ContentType"),
             "content_length": resp.get("ContentLength"),
@@ -374,7 +419,7 @@ def object_meta(account_idx: int, bucket: str, key: str = Query(...)):
             if resp.get("LastModified")
             else None,
             "etag": resp.get("ETag", "").strip('"'),
-            "expires": expires.isoformat() if hasattr(expires, "isoformat") else expires,
+            "expires": expire_iso,
             "metadata": resp.get("Metadata", {}),
         }
     except ClientError as e:

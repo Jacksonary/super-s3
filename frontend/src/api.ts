@@ -54,11 +54,12 @@ export const api = {
     bucket: string,
     q: string,
     prefix = "",
-    limit = 200
+    limit = 200,
+    continuationToken?: string
   ): Promise<SearchResult> {
     return axios
       .get(`${BASE}/search/${accountId}/${encodeURIComponent(bucket)}`, {
-        params: { q, prefix, limit },
+        params: { q, prefix, limit, continuation_token: continuationToken },
       })
       .then((r) => r.data);
   },

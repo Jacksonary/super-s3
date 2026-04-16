@@ -194,7 +194,35 @@ export function ObjectBrowser({ target }: Props) {
 
   // ─── Search ────────────────────────────────────────────────────────────
 
-  const handleSearch = async (val: string) => {
+  const loadSearch = useCallback(
+    async (q: string, page = 0) => {
+      const size = pageSizeRef.current;
+      setLoading(true);
+      setItems([]);
+      setSelectedRowKeys([]);
+      try {
+        const res = await api.search(
+          accountId, bucket, q, prefix, size,
+          pageTokensRef.current[page]
+        );
+        setItems(res.items);
+        const hasNext =
+          !!res.next_continuation_token && (page + 1) * size < MAX_TOTAL;
+        setHasNextPage(hasNext);
+        if (res.next_continuation_token) {
+          pageTokensRef.current[page + 1] = res.next_continuation_token;
+        }
+      } catch (e: unknown) {
+        message.error(`Search failed: ${(e as Error).message}`);
+      } finally {
+        setLoading(false);
+        setSearching(false);
+      }
+    },
+    [accountId, bucket, prefix]
+  );
+
+  const handleSearch = (val: string) => {
     if (!val.trim()) {
       setIsSearchMode(false);
       reload();
@@ -202,19 +230,9 @@ export function ObjectBrowser({ target }: Props) {
     }
     setSearching(true);
     setIsSearchMode(true);
-    setItems([]);
-    setHasNextPage(false);
-    try {
-      const res = await api.search(accountId, bucket, val, prefix, pageSize);
-      setItems(res.items);
-      if (res.is_truncated) {
-        message.info("Results truncated — refine your prefix to narrow down");
-      }
-    } catch (e: unknown) {
-      message.error(`Search failed: ${(e as Error).message}`);
-    } finally {
-      setSearching(false);
-    }
+    setCurrentPage(0);
+    pageTokensRef.current = [undefined];
+    loadSearch(val, 0);
   };
 
   // ─── Delete ────────────────────────────────────────────────────────────
@@ -644,7 +662,7 @@ export function ObjectBrowser({ target }: Props) {
               }}
               scroll={{ x: "max-content" }}
             />
-            {!isSearchMode && (currentPage > 0 || hasNextPage) && (
+            {(currentPage > 0 || hasNextPage) && (
               <div
                 style={{
                   display: "flex",
@@ -662,7 +680,8 @@ export function ObjectBrowser({ target }: Props) {
                   onClick={() => {
                     const p = currentPage - 1;
                     setCurrentPage(p);
-                    load(prefix, p);
+                    if (isSearchMode) loadSearch(searchText, p);
+                    else load(prefix, p);
                   }}
                 >
                   Prev
@@ -676,7 +695,8 @@ export function ObjectBrowser({ target }: Props) {
                   onClick={() => {
                     const p = currentPage + 1;
                     setCurrentPage(p);
-                    load(prefix, p);
+                    if (isSearchMode) loadSearch(searchText, p);
+                    else load(prefix, p);
                   }}
                 >
                   Next <RightOutlined />
@@ -701,7 +721,8 @@ export function ObjectBrowser({ target }: Props) {
                       setPageSize(size);
                       setCurrentPage(0);
                       pageTokensRef.current = [undefined];
-                      load(prefix, 0, size);
+                      if (isSearchMode) loadSearch(searchText, 0);
+                      else load(prefix, 0, size);
                     }}
                   />
                 </div>
