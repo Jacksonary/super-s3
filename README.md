@@ -4,35 +4,49 @@
 
 ## 功能特性
 
-- **多账号管理**：支持同时配置任意数量的云账号，侧栏树形展示
+- **多账号管理**：支持同时配置任意数量的云账号，侧栏树形展示；支持在页面内直接新增、编辑、删除账号，无需登录宿主机改配置文件
 - **虚拟文件夹导航**：按层级浏览，面包屑路径跳转，不全量拉取
-- **分页加载**：每次加载 200 条，超出点击 Load more，避免大桶卡死
+- **分页浏览**：每页 10 / 20 / 50 条可选（默认 10），游标式翻页，任意深度无性能衰减
+- **前缀检索**：按 key 前缀搜索，不触发全量扫描，搜索结果同样支持翻页
+- **对象详情**：点击文件名查看完整元数据（大小、Content-Type、修改时间、过期时间、ETag、自定义元数据）
+- **预览 / 查看**：
+  - 图片：内联展示，右下角支持全屏放大
+  - 音频 / 视频：浏览器原生播放器
+  - 文本：全量加载，支持一键复制和在线编辑后覆盖更新
 - **上传**：点击上传或拖拽文件，带实时进度条，支持多文件同时上传
 - **下载**：流式传输，不在内存中积压大文件
 - **删除**：单个删除 / 勾选批量删除，文件夹自动递归删除内部对象
 - **新建文件夹**：创建虚拟目录
-- **搜索**：按 key 前缀搜索，不触发全量扫描
-- **一键复制**：复制对象 key 或生成预签名下载链接（默认有效期 1 小时）
+- **预签名链接**：生成带时效的下载链接（默认 1 小时），兼容 HTTP 环境下的剪贴板写入
+
+---
 
 ## 快速开始
+
+> 无需克隆代码、无需编译，两步即可运行。
 
 ### 1. 准备配置文件
 
 ```bash
 cp config.example.yaml config.yaml
+# 编辑 config.yaml，填入你的 ak / sk
 ```
 
-编辑 `config.yaml`，填入真实的 ak/sk（格式见下方）。
+格式参考下方"配置文件格式"一节。也可以跳过此步，启动后在页面侧边栏的齿轮图标中直接添加账号。
 
-### 2. 构建并启动
+### 2. 启动服务
 
 ```bash
-docker compose up -d --build
+docker run -d \
+  --name super-s3 \
+  -p 8080:8080 \
+  -v $(pwd)/config.yaml:/config/config.yaml \
+  -e CONFIG_PATH=/config/config.yaml \
+  --restart unless-stopped \
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.1.0
 ```
 
-### 3. 访问
-
-浏览器打开 [http://localhost:8080](http://localhost:8080)
+访问 <http://localhost:8080> 即可使用。
 
 ---
 
@@ -86,8 +100,6 @@ docker compose up -d --build
   buckets: []
 ```
 
-**字段说明：**
-
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `ak` | 是 | Access Key ID |
@@ -99,14 +111,20 @@ docker compose up -d --build
 
 ---
 
-## 启动方式
+## 其他启动方式
 
-### 方式一：docker compose（推荐）
+### docker compose
 
-配置文件放在项目根目录命名为 `config.yaml`：
+适合长期部署，将配置文件放在项目根目录命名为 `config.yaml`，然后：
 
 ```bash
-docker compose up -d --build
+docker compose up -d
+```
+
+`docker-compose.yml` 默认使用本地构建镜像。如需直接使用预构建镜像，将文件中的 `build: .` 替换为：
+
+```yaml
+image: registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.1.0
 ```
 
 重新加载配置（修改 config.yaml 后重启即可）：
@@ -115,65 +133,45 @@ docker compose up -d --build
 docker compose restart
 ```
 
-停止服务：
-
-```bash
-docker compose down
-```
-
-### 方式二：指定任意配置文件路径
-
-修改 `docker-compose.yml` 中的 volumes 和 environment：
-
-```yaml
-volumes:
-  - /your/custom/path/my-config.yaml:/config/config.yaml:ro
-environment:
-  - CONFIG_PATH=/config/config.yaml
-```
-
-### 方式三：docker run
-
-```bash
-docker build -t super-s3 .
-
-docker run -d \
-  --name super-s3 \
-  -p 7998:8080 \
-  -v /usr/local/docker-data/super-s3/config.yaml:/config/config.yaml:ro \
-  --restart unless-stopped \
-  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:v1.0.1
-```
-
 ### 修改端口
 
-默认端口 `8080`，如需修改，编辑 `docker-compose.yml`：
+默认端口 `8080`，如需修改，将 `-p 8080:8080` 改为目标端口即可，例如：
 
-```yaml
-ports:
-  - "9000:8080"   # 宿主机 9000 → 容器 8080
+```bash
+docker run -d \
+  --name super-s3 \
+  -p 9000:8080 \
+  -v $(pwd)/config.yaml:/config/config.yaml \
+  -e CONFIG_PATH=/config/config.yaml \
+  --restart unless-stopped \
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.1.0
 ```
 
 ---
 
-## 本地开发
+## 从源码构建
 
-如需在本地开发调试，不依赖 Docker：
-
-**启动后端**
+如需二次开发或自行打包：
 
 ```bash
+git clone <repo>
+cd super-s3
+cp config.example.yaml config.yaml
+docker compose up -d --build
+```
+
+本地开发（不依赖 Docker）：
+
+```bash
+# 后端
 cd backend
 pip install -r requirements.txt
 CONFIG_PATH=../config.yaml uvicorn main:app --reload --port 8080
-```
 
-**启动前端**
-
-```bash
+# 前端（另开终端）
 cd frontend
 npm install
-npm run dev        # 访问 http://localhost:5173，自动代理 /api 到 :8080
+npm run dev   # 访问 http://localhost:5173，自动代理 /api 到 :8080
 ```
 
 ---
