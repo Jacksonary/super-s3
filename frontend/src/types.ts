@@ -6,6 +6,24 @@ export interface Account {
   buckets: string[];
 }
 
+export interface AccountConfig {
+  name?: string;
+  ak: string;
+  sk: string;
+  endpoint: string;
+  region: string;
+  buckets: string[];
+}
+
+export interface ObjectMeta {
+  content_type: string | null;
+  content_length: number | null;
+  last_modified: string | null;
+  etag: string | null;
+  expires: string | null;
+  metadata: Record<string, string>;
+}
+
 export interface ObjectItem {
   key: string;
   name: string;
@@ -28,6 +46,7 @@ export interface ListResult {
 export interface SearchResult {
   items: ObjectItem[];
   is_truncated: boolean;
+  next_continuation_token: string | null;
 }
 
 export interface DeleteResult {

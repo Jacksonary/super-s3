@@ -1,12 +1,14 @@
 import os
-import io
+import re
+from email.utils import parsedate_to_datetime
+from urllib.parse import quote
 from typing import Optional, List
 
 import boto3
 import yaml
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +27,7 @@ app.add_middleware(
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/config.yaml")
 
 # ─── Config ──────────────────────────────────────────────────────────────────
+
 
 def load_config() -> list:
     with open(CONFIG_PATH, "r") as f:
@@ -79,6 +82,28 @@ def get_client(account_idx: int):
     if account_idx < 0 or account_idx >= len(accounts):
         raise HTTPException(status_code=404, detail="Account not found")
     return make_client(accounts[account_idx])
+
+
+# ─── Config CRUD ─────────────────────────────────────────────────────────────
+
+@app.get("/api/config")
+def get_config():
+    """Return raw account config list (without ak/sk masked)."""
+    accounts = load_config()
+    return accounts
+
+
+@app.put("/api/config")
+def put_config(accounts: list = Body(...)):
+    """Overwrite the entire config file with the given account list."""
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            yaml.dump(accounts, f, allow_unicode=True, sort_keys=False)
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to write config: {e}"
+        )
+    return {"ok": True}
 
 
 # ─── Accounts ────────────────────────────────────────────────────────────────
@@ -197,15 +222,19 @@ def search_objects(
     q: str = Query(...),
     prefix: str = "",
     limit: int = Query(default=200, le=500),
+    continuation_token: Optional[str] = None,
 ):
-    """Recursive prefix search – no delimiter."""
+    """Recursive prefix search – no delimiter, cursor-based pagination."""
     try:
         client = get_client(account_idx)
-        resp = client.list_objects_v2(
-            Bucket=bucket,
-            Prefix=prefix + q,
-            MaxKeys=limit,
-        )
+        kwargs: dict = {
+            "Bucket": bucket,
+            "Prefix": prefix + q,
+            "MaxKeys": limit,
+        }
+        if continuation_token:
+            kwargs["ContinuationToken"] = continuation_token
+        resp = client.list_objects_v2(**kwargs)
         items = [
             {
                 "key": obj["Key"],
@@ -218,7 +247,11 @@ def search_objects(
             }
             for obj in resp.get("Contents", [])
         ]
-        return {"items": items, "is_truncated": resp.get("IsTruncated", False)}
+        return {
+            "items": items,
+            "is_truncated": resp.get("IsTruncated", False),
+            "next_continuation_token": resp.get("NextContinuationToken"),
+        }
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -238,10 +271,13 @@ def delete_objects(account_idx: int, bucket: str, req: DeleteRequest):
         errors = []
         deleted = 0
         for i in range(0, len(req.keys), 1000):
-            batch = req.keys[i : i + 1000]
+            batch = req.keys[i:i + 1000]
             resp = client.delete_objects(
                 Bucket=bucket,
-                Delete={"Objects": [{"Key": k} for k in batch], "Quiet": False},
+                Delete={
+                    "Objects": [{"Key": k} for k in batch],
+                    "Quiet": False,
+                },
             )
             deleted += len(batch) - len(resp.get("Errors", []))
             errors.extend(resp.get("Errors", []))
@@ -258,6 +294,8 @@ def download_object(account_idx: int, bucket: str, key: str = Query(...)):
         client = get_client(account_idx)
         resp = client.get_object(Bucket=bucket, Key=key)
         filename = key.split("/")[-1] or "file"
+        # RFC 5987: safely handle Unicode and special chars in filename
+        encoded_name = quote(filename, safe="")
         content_type = resp.get("ContentType", "application/octet-stream")
         content_length = str(resp.get("ContentLength", ""))
 
@@ -266,12 +304,16 @@ def download_object(account_idx: int, bucket: str, key: str = Query(...)):
                 yield chunk
 
         headers = {
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": (
+                f"attachment; filename*=UTF-8''{encoded_name}"
+            ),
         }
         if content_length:
             headers["Content-Length"] = content_length
 
-        return StreamingResponse(stream(), media_type=content_type, headers=headers)
+        return StreamingResponse(
+            stream(), media_type=content_type, headers=headers
+        )
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -293,7 +335,7 @@ def presign_object(
             ExpiresIn=expires,
         )
         return {"url": url}
-    except ClientError as e:
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -344,15 +386,91 @@ def object_meta(account_idx: int, bucket: str, key: str = Query(...)):
     try:
         client = get_client(account_idx)
         resp = client.head_object(Bucket=bucket, Key=key)
+
+        # Resolve lifecycle expiry across providers.
+        # AWS S3 maps x-amz-expiration → resp["Expiration"].
+        # OBS/OSS/TOS use vendor-specific headers that boto3 does NOT auto-map,
+        # so we read them directly from ResponseMetadata.
+        raw_headers = resp.get("ResponseMetadata", {}).get("HTTPHeaders", {})
+        expiration_str = (
+            resp.get("Expiration")                          # AWS S3
+            or raw_headers.get("x-obs-expiration", "")     # 华为云 OBS
+            or raw_headers.get("x-oss-expiration", "")     # 阿里云 OSS
+            or raw_headers.get("x-tos-expiration", "")     # 火山云 TOS
+        )
+        expire_iso = None
+        if expiration_str:
+            m = re.search(r'expiry-date="([^"]+)"', expiration_str)
+            if m:
+                try:
+                    expire_iso = parsedate_to_datetime(m.group(1)).isoformat()
+                except Exception:
+                    expire_iso = m.group(1)
+        # Fallback: HTTP cache Expires header (rarely set, but handle it)
+        if not expire_iso:
+            http_expires = resp.get("Expires")
+            if http_expires and hasattr(http_expires, "isoformat"):
+                expire_iso = http_expires.isoformat()
+
         return {
             "content_type": resp.get("ContentType"),
             "content_length": resp.get("ContentLength"),
-            "last_modified": resp.get("LastModified", "").isoformat()
+            "last_modified": resp.get("LastModified").isoformat()
             if resp.get("LastModified")
             else None,
             "etag": resp.get("ETag", "").strip('"'),
+            "expires": expire_iso,
             "metadata": resp.get("Metadata", {}),
         }
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Text preview & update ───────────────────────────────────────────────────
+
+@app.get("/api/preview/{account_idx}/{bucket}")
+def preview_object(
+    account_idx: int,
+    bucket: str,
+    key: str = Query(...),
+    max_bytes: int = Query(default=5 * 1024 * 1024, le=10 * 1024 * 1024),
+):
+    """Return full text content of an object (up to max_bytes)."""
+    try:
+        client = get_client(account_idx)
+        resp = client.get_object(Bucket=bucket, Key=key)
+        raw = resp["Body"].read(max_bytes)
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+        return {"text": text}
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class TextUpdateRequest(BaseModel):
+    text: str
+    content_type: str = "text/plain; charset=utf-8"
+
+
+@app.put("/api/text/{account_idx}/{bucket}")
+def update_text(
+    account_idx: int,
+    bucket: str,
+    key: str = Query(...),
+    req: TextUpdateRequest = Body(...),
+):
+    """Overwrite a text object with new content."""
+    try:
+        client = get_client(account_idx)
+        client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=req.text.encode("utf-8"),
+            ContentType=req.content_type,
+        )
+        return {"ok": True}
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
 

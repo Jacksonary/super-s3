@@ -1,7 +1,26 @@
+# secrets / local config
 .env
 config.yaml
+
+# python
 __pycache__/
 *.pyc
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+*.egg-info/
+
+# frontend
 node_modules/
 frontend/dist/
+
+# editors / OS
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# claude code
+.claude/

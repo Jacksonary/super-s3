@@ -1,6 +1,8 @@
 import axios from "axios";
 import type {
   Account,
+  AccountConfig,
+  ObjectMeta,
   ListResult,
   SearchResult,
   DeleteResult,
@@ -11,6 +13,14 @@ const BASE = "/api";
 export const api = {
   accounts(): Promise<Account[]> {
     return axios.get(`${BASE}/accounts`).then((r) => r.data);
+  },
+
+  getConfig(): Promise<AccountConfig[]> {
+    return axios.get(`${BASE}/config`).then((r) => r.data);
+  },
+
+  putConfig(accounts: AccountConfig[]): Promise<{ ok: boolean }> {
+    return axios.put(`${BASE}/config`, accounts).then((r) => r.data);
   },
 
   buckets(accountId: number): Promise<{ buckets: string[] }> {
@@ -44,11 +54,12 @@ export const api = {
     bucket: string,
     q: string,
     prefix = "",
-    limit = 200
+    limit = 200,
+    continuationToken?: string
   ): Promise<SearchResult> {
     return axios
       .get(`${BASE}/search/${accountId}/${encodeURIComponent(bucket)}`, {
-        params: { q, prefix, limit },
+        params: { q, prefix, limit, continuation_token: continuationToken },
       })
       .then((r) => r.data);
   },
@@ -79,6 +90,41 @@ export const api = {
       .get(`${BASE}/presign/${accountId}/${encodeURIComponent(bucket)}`, {
         params: { key, expires },
       })
+      .then((r) => r.data);
+  },
+
+  meta(accountId: number, bucket: string, key: string): Promise<ObjectMeta> {
+    return axios
+      .get(`${BASE}/meta/${accountId}/${encodeURIComponent(bucket)}`, {
+        params: { key },
+      })
+      .then((r) => r.data);
+  },
+
+  preview(
+    accountId: number,
+    bucket: string,
+    key: string
+  ): Promise<{ text: string }> {
+    return axios
+      .get(`${BASE}/preview/${accountId}/${encodeURIComponent(bucket)}`, {
+        params: { key },
+      })
+      .then((r) => r.data);
+  },
+
+  updateText(
+    accountId: number,
+    bucket: string,
+    key: string,
+    text: string,
+    contentType = "text/plain; charset=utf-8"
+  ): Promise<{ ok: boolean }> {
+    return axios
+      .put(`${BASE}/text/${accountId}/${encodeURIComponent(bucket)}`, {
+        text,
+        content_type: contentType,
+      }, { params: { key } })
       .then((r) => r.data);
   },
 

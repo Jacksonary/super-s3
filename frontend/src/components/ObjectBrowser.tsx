@@ -17,6 +17,7 @@ import {
   Form,
   theme,
   Badge,
+  Segmented,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
@@ -32,10 +33,13 @@ import {
   LoadingOutlined,
   CopyOutlined,
   HomeOutlined,
+  LeftOutlined,
+  RightOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { api } from "../api";
 import type { ObjectItem, SelectedBucket } from "../types";
+import { DetailDrawer } from "./DetailDrawer";
 
 const { Text } = Typography;
 
@@ -52,6 +56,22 @@ function fmtSize(bytes: number | null): string {
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   return dayjs(iso).format("YYYY-MM-DD HH:mm");
+}
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    // fallback for HTTP (non-localhost) contexts
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.style.position = "fixed";
+    el.style.opacity = "0";
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand("copy");
+    document.body.removeChild(el);
+  }
 }
 
 // ─── UploadQueue ────────────────────────────────────────────────────────────
@@ -77,12 +97,19 @@ export function ObjectBrowser({ target }: Props) {
   const [prefix, setPrefix] = useState("");
   const [items, setItems] = useState<ObjectItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [nextToken, setNextToken] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [searchText, setSearchText] = useState("");
   const [searching, setSearching] = useState(false);
   const [isSearchMode, setIsSearchMode] = useState(false);
+
+  // pagination
+  const MAX_TOTAL = 2000;
+  const [pageSize, setPageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const pageSizeRef = useRef(10);
+  // pageTokensRef[i] = continuation_token to fetch page i (undefined = first page)
+  const pageTokensRef = useRef<(string | undefined)[]>([undefined]);
 
   // upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -95,30 +122,34 @@ export function ObjectBrowser({ target }: Props) {
   // drag-over state
   const [dragOver, setDragOver] = useState(false);
 
+  // detail drawer
+  const [drawerItem, setDrawerItem] = useState<ObjectItem | null>(null);
+
   // ─── Load objects ──────────────────────────────────────────────────────
 
   const load = useCallback(
-    async (p: string, token?: string) => {
-      if (!token) {
-        setLoading(true);
-        setItems([]);
-        setNextToken(null);
-        setSelectedRowKeys([]);
-      } else {
-        setLoadingMore(true);
-      }
+    async (p: string, page = 0, pSize?: number) => {
+      const size = pSize ?? pageSizeRef.current;
+      setLoading(true);
+      setItems([]);
+      setSelectedRowKeys([]);
       try {
         const res = await api.listObjects(accountId, bucket, {
           prefix: p,
-          continuation_token: token,
+          continuation_token: pageTokensRef.current[page],
+          limit: size,
         });
-        setItems((prev) => (token ? [...prev, ...res.items] : res.items));
-        setNextToken(res.next_continuation_token ?? null);
+        setItems(res.items);
+        const hasNext =
+          !!res.next_continuation_token && (page + 1) * size < MAX_TOTAL;
+        setHasNextPage(hasNext);
+        if (res.next_continuation_token) {
+          pageTokensRef.current[page + 1] = res.next_continuation_token;
+        }
       } catch (e: unknown) {
         message.error(`Load failed: ${(e as Error).message}`);
       } finally {
         setLoading(false);
-        setLoadingMore(false);
       }
     },
     [accountId, bucket]
@@ -128,10 +159,19 @@ export function ObjectBrowser({ target }: Props) {
     setPrefix("");
     setIsSearchMode(false);
     setSearchText("");
+    setCurrentPage(0);
+    pageTokensRef.current = [undefined];
     load("");
   }, [accountId, bucket, load]);
 
   // ─── Breadcrumb navigation ─────────────────────────────────────────────
+
+  // reset pagination and reload current prefix (used after mutations)
+  const reload = () => {
+    setCurrentPage(0);
+    pageTokensRef.current = [undefined];
+    load(prefix, 0);
+  };
 
   const segments = prefix
     ? prefix
@@ -147,32 +187,52 @@ export function ObjectBrowser({ target }: Props) {
     setIsSearchMode(false);
     setSearchText("");
     setPrefix(p);
-    load(p);
+    setCurrentPage(0);
+    pageTokensRef.current = [undefined];
+    load(p, 0);
   };
 
   // ─── Search ────────────────────────────────────────────────────────────
 
-  const handleSearch = async (val: string) => {
+  const loadSearch = useCallback(
+    async (q: string, page = 0) => {
+      const size = pageSizeRef.current;
+      setLoading(true);
+      setItems([]);
+      setSelectedRowKeys([]);
+      try {
+        const res = await api.search(
+          accountId, bucket, q, prefix, size,
+          pageTokensRef.current[page]
+        );
+        setItems(res.items);
+        const hasNext =
+          !!res.next_continuation_token && (page + 1) * size < MAX_TOTAL;
+        setHasNextPage(hasNext);
+        if (res.next_continuation_token) {
+          pageTokensRef.current[page + 1] = res.next_continuation_token;
+        }
+      } catch (e: unknown) {
+        message.error(`Search failed: ${(e as Error).message}`);
+      } finally {
+        setLoading(false);
+        setSearching(false);
+      }
+    },
+    [accountId, bucket, prefix]
+  );
+
+  const handleSearch = (val: string) => {
     if (!val.trim()) {
       setIsSearchMode(false);
-      load(prefix);
+      reload();
       return;
     }
     setSearching(true);
     setIsSearchMode(true);
-    setItems([]);
-    setNextToken(null);
-    try {
-      const res = await api.search(accountId, bucket, val, prefix);
-      setItems(res.items);
-      if (res.is_truncated) {
-        message.info("Results truncated — refine your query for more precision");
-      }
-    } catch (e: unknown) {
-      message.error(`Search failed: ${(e as Error).message}`);
-    } finally {
-      setSearching(false);
-    }
+    setCurrentPage(0);
+    pageTokensRef.current = [undefined];
+    loadSearch(val, 0);
   };
 
   // ─── Delete ────────────────────────────────────────────────────────────
@@ -208,17 +268,11 @@ export function ObjectBrowser({ target }: Props) {
       const result = await api.deleteObjects(accountId, bucket, toDelete);
       message.success(`Deleted ${result.deleted} object(s)`);
       setSelectedRowKeys([]);
-      load(prefix);
+      reload();
     } catch (e: unknown) {
       message.error(`Delete failed: ${(e as Error).message}`);
     }
   };
-
-  const deleteSingle = async (key: string) => {
-    await deleteSelected();
-    void key; // included via selectedRowKeys; set before calling
-  };
-  void deleteSingle;
 
   const handleDeleteRow = async (item: ObjectItem) => {
     const keysToDelete = item.type === "folder" ? [] : [item.key];
@@ -242,7 +296,7 @@ export function ObjectBrowser({ target }: Props) {
     try {
       const result = await api.deleteObjects(accountId, bucket, keysToDelete);
       message.success(`Deleted ${result.deleted} object(s)`);
-      load(prefix);
+      reload();
     } catch (e: unknown) {
       message.error(`Delete failed: ${(e as Error).message}`);
     }
@@ -283,7 +337,7 @@ export function ObjectBrowser({ target }: Props) {
         );
       }
     }
-    load(prefix);
+    reload();
   };
 
   // ─── Drag & drop ───────────────────────────────────────────────────────
@@ -301,10 +355,13 @@ export function ObjectBrowser({ target }: Props) {
   const copyPresignedLink = async (item: ObjectItem) => {
     try {
       const { url } = await api.presign(accountId, bucket, item.key);
-      await navigator.clipboard.writeText(url);
+      await copyText(url);
       message.success("Presigned URL copied to clipboard");
-    } catch {
-      message.error("Failed to generate presigned URL");
+    } catch (e: unknown) {
+      const detail =
+        (e as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? (e as Error)?.message ?? "Unknown error";
+      message.error(`Failed to generate presigned URL: ${detail}`);
     }
   };
 
@@ -319,7 +376,7 @@ export function ObjectBrowser({ target }: Props) {
       message.success(`Folder "${folderName}" created`);
       setFolderModal(false);
       folderForm.resetFields();
-      load(prefix);
+      reload();
     } catch (e: unknown) {
       message.error(`Failed: ${(e as Error).message}`);
     }
@@ -348,7 +405,12 @@ export function ObjectBrowser({ target }: Props) {
               {name}
             </a>
           ) : (
-            <span>{isSearchMode ? row.key : name}</span>
+            <a
+              onClick={() => setDrawerItem(row)}
+              style={{ color: token.colorText }}
+            >
+              {isSearchMode ? row.key : name}
+            </a>
           )}
         </Space>
       ),
@@ -412,7 +474,7 @@ export function ObjectBrowser({ target }: Props) {
               type="text"
               icon={<CopyOutlined />}
               onClick={() => {
-                navigator.clipboard.writeText(row.key);
+                copyText(row.key);
                 message.success("Key copied");
               }}
             />
@@ -495,7 +557,9 @@ export function ObjectBrowser({ target }: Props) {
             setSearchText(e.target.value);
             if (!e.target.value) {
               setIsSearchMode(false);
-              load(prefix);
+              setCurrentPage(0);
+              pageTokensRef.current = [undefined];
+              load(prefix, 0);
             }
           }}
           onSearch={handleSearch}
@@ -537,7 +601,11 @@ export function ObjectBrowser({ target }: Props) {
           <Tooltip title="Refresh">
             <Button
               icon={<ReloadOutlined spin={loading} />}
-              onClick={() => load(prefix)}
+              onClick={() => {
+                setCurrentPage(0);
+                pageTokensRef.current = [undefined];
+                load(prefix, 0);
+              }}
             />
           </Tooltip>
         </Space>
@@ -594,14 +662,70 @@ export function ObjectBrowser({ target }: Props) {
               }}
               scroll={{ x: "max-content" }}
             />
-            {nextToken && !isSearchMode && (
-              <div style={{ textAlign: "center", padding: 16 }}>
+            {(currentPage > 0 || hasNextPage) && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 12,
+                  padding: "12px 16px",
+                  borderTop: `1px solid ${token.colorBorderSecondary}`,
+                }}
+              >
                 <Button
-                  loading={loadingMore}
-                  onClick={() => load(prefix, nextToken)}
+                  icon={<LeftOutlined />}
+                  size="small"
+                  disabled={currentPage === 0}
+                  onClick={() => {
+                    const p = currentPage - 1;
+                    setCurrentPage(p);
+                    if (isSearchMode) loadSearch(searchText, p);
+                    else load(prefix, p);
+                  }}
                 >
-                  Load more
+                  Prev
                 </Button>
+                <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
+                  Page {currentPage + 1}
+                </span>
+                <Button
+                  size="small"
+                  disabled={!hasNextPage}
+                  onClick={() => {
+                    const p = currentPage + 1;
+                    setCurrentPage(p);
+                    if (isSearchMode) loadSearch(searchText, p);
+                    else load(prefix, p);
+                  }}
+                >
+                  Next <RightOutlined />
+                </Button>
+                {!hasNextPage && currentPage * pageSize + items.length >= MAX_TOTAL && (
+                  <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                    Limit of {MAX_TOTAL} reached — use prefix search to narrow down
+                  </span>
+                )}
+                <div style={{ marginLeft: 8, borderLeft: `1px solid ${token.colorBorderSecondary}`, paddingLeft: 12 }}>
+                  <Segmented
+                    size="small"
+                    options={[
+                      { label: "10", value: 10 },
+                      { label: "20", value: 20 },
+                      { label: "50", value: 50 },
+                    ]}
+                    value={pageSize}
+                    onChange={(val) => {
+                      const size = val as number;
+                      pageSizeRef.current = size;
+                      setPageSize(size);
+                      setCurrentPage(0);
+                      pageTokensRef.current = [undefined];
+                      if (isSearchMode) loadSearch(searchText, 0);
+                      else load(prefix, 0, size);
+                    }}
+                  />
+                </div>
               </div>
             )}
           </>
@@ -646,6 +770,14 @@ export function ObjectBrowser({ target }: Props) {
           </Text>
         </Form>
       </Modal>
+
+      {/* Detail drawer */}
+      <DetailDrawer
+        open={drawerItem !== null}
+        target={target}
+        item={drawerItem}
+        onClose={() => setDrawerItem(null)}
+      />
     </div>
   );
 }
