@@ -13,9 +13,11 @@ import {
   InboxOutlined,
   LoadingOutlined,
   ReloadOutlined,
+  SettingOutlined,
 } from "@ant-design/icons";
 import { api } from "../api";
 import type { Account, SelectedBucket } from "../types";
+import { ConfigModal } from "./ConfigModal";
 
 const { Text } = Typography;
 
@@ -29,6 +31,7 @@ export function Sidebar({ selected, onSelect }: Props) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  const [configOpen, setConfigOpen] = useState(false);
 
   const loadAccounts = async () => {
     setLoading(true);
@@ -131,6 +134,12 @@ export function Sidebar({ selected, onSelect }: Props) {
             style={{ cursor: "pointer", color: token.colorTextSecondary }}
           />
         </Tooltip>
+        <Tooltip title="账号管理">
+          <SettingOutlined
+            onClick={() => setConfigOpen(true)}
+            style={{ cursor: "pointer", color: token.colorTextSecondary }}
+          />
+        </Tooltip>
       </div>
 
       {/* Tree */}
@@ -152,6 +161,14 @@ export function Sidebar({ selected, onSelect }: Props) {
           />
         )}
       </div>
+
+      <ConfigModal
+        open={configOpen}
+        onClose={(reloaded) => {
+          setConfigOpen(false);
+          if (reloaded) loadAccounts();
+        }}
+      />
     </div>
   );
 }

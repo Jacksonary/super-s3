@@ -6,6 +6,15 @@ export interface Account {
   buckets: string[];
 }
 
+export interface AccountConfig {
+  name?: string;
+  ak: string;
+  sk: string;
+  endpoint: string;
+  region: string;
+  buckets: string[];
+}
+
 export interface ObjectItem {
   key: string;
   name: string;

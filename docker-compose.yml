@@ -6,7 +6,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./config.yaml:/config/config.yaml:ro
+      - ./config.yaml:/config/config.yaml
     environment:
       - CONFIG_PATH=/config/config.yaml
     restart: unless-stopped

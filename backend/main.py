@@ -81,6 +81,26 @@ def get_client(account_idx: int):
     return make_client(accounts[account_idx])
 
 
+# ─── Config CRUD ─────────────────────────────────────────────────────────────
+
+@app.get("/api/config")
+def get_config():
+    """Return raw account config list (without ak/sk masked)."""
+    accounts = load_config()
+    return accounts
+
+
+@app.put("/api/config")
+def put_config(accounts: list):
+    """Overwrite the entire config file with the given account list."""
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            yaml.dump(accounts, f, allow_unicode=True, sort_keys=False)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write config: {e}")
+    return {"ok": True}
+
+
 # ─── Accounts ────────────────────────────────────────────────────────────────
 
 @app.get("/api/accounts")

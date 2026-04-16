@@ -1,6 +1,7 @@
 import axios from "axios";
 import type {
   Account,
+  AccountConfig,
   ListResult,
   SearchResult,
   DeleteResult,
@@ -11,6 +12,14 @@ const BASE = "/api";
 export const api = {
   accounts(): Promise<Account[]> {
     return axios.get(`${BASE}/accounts`).then((r) => r.data);
+  },
+
+  getConfig(): Promise<AccountConfig[]> {
+    return axios.get(`${BASE}/config`).then((r) => r.data);
+  },
+
+  putConfig(accounts: AccountConfig[]): Promise<{ ok: boolean }> {
+    return axios.put(`${BASE}/config`, accounts).then((r) => r.data);
   },
 
   buckets(accountId: number): Promise<{ buckets: string[] }> {
