@@ -1,6 +1,6 @@
 {
   "name": "super-s3-ui",
-  "version": "1.0.6",
+  "version": "1.6.0",
   "private": true,
   "scripts": {
     "dev": "vite",

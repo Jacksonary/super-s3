@@ -188,7 +188,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
         }}
       >
         <Text style={{ fontSize: 11, color: token.colorTextQuaternary }}>
-          v1.0.6 · jacksonary
+          v1.6.0 · jacksonary
         </Text>
         <Space size={8}>
           <Tooltip title="GitHub">
