@@ -4,14 +4,22 @@ import {
   Descriptions,
   Spin,
   Button,
-  Alert,
   Tag,
   Space,
   Typography,
   theme,
   message,
+  Modal,
+  Input,
 } from "antd";
-import { DownloadOutlined, LinkOutlined, EyeOutlined } from "@ant-design/icons";
+import {
+  DownloadOutlined,
+  LinkOutlined,
+  EyeOutlined,
+  CopyOutlined,
+  EditOutlined,
+  FullscreenOutlined,
+} from "@ant-design/icons";
 import dayjs from "dayjs";
 import { api } from "../api";
 import type { ObjectItem, ObjectMeta, SelectedBucket } from "../types";
@@ -89,9 +97,16 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
 
   const [previewUrl, setPreviewUrl]   = useState<string | null>(null);
   const [previewText, setPreviewText] = useState<string | null>(null);
-  const [previewTruncated, setPreviewTruncated] = useState(false);
-  const [previewLoading, setPreviewLoading]     = useState(false);
-  const [previewReady, setPreviewReady]         = useState(false);
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentReady, setContentReady]     = useState(false);
+
+  // text edit state
+  const [editMode, setEditMode]   = useState(false);
+  const [editText, setEditText]   = useState("");
+  const [updating, setUpdating]   = useState(false);
+
+  // image fullscreen
+  const [imgFullscreen, setImgFullscreen] = useState(false);
 
   // reset every time a new item opens
   useEffect(() => {
@@ -99,8 +114,10 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
     setMeta(null);
     setPreviewUrl(null);
     setPreviewText(null);
-    setPreviewTruncated(false);
-    setPreviewReady(false);
+    setContentReady(false);
+    setEditMode(false);
+    setEditText("");
+    setImgFullscreen(false);
 
     setMetaLoading(true);
     api.meta(accountId, bucket, item.key)
@@ -110,7 +127,7 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
         if (pt === "image" || pt === "audio" || pt === "video") {
           return api.presign(accountId, bucket, item.key).then(({ url }) => {
             setPreviewUrl(url);
-            setPreviewReady(true);
+            setContentReady(true);
           });
         }
       })
@@ -118,24 +135,47 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
         const detail =
           (e as { response?: { data?: { detail?: string } } })?.response?.data
             ?.detail ?? (e as Error)?.message ?? "Unknown error";
-        message.error(`加载元数据失败: ${detail}`);
+        message.error(`Failed to load metadata: ${detail}`);
       })
       .finally(() => setMetaLoading(false));
   }, [open, item, accountId, bucket]);
 
-  const loadTextPreview = async () => {
+  const loadTextContent = async () => {
     if (!item) return;
-    setPreviewLoading(true);
+    setContentLoading(true);
     try {
-      const { text, truncated } = await api.preview(accountId, bucket, item.key);
+      const { text } = await api.preview(accountId, bucket, item.key);
       setPreviewText(text);
-      setPreviewTruncated(truncated);
-      setPreviewReady(true);
+      setEditText(text);
+      setContentReady(true);
     } catch {
-      setPreviewText("Failed to load preview.");
-      setPreviewReady(true);
+      message.error("Failed to load file content.");
     } finally {
-      setPreviewLoading(false);
+      setContentLoading(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!item) return;
+    setUpdating(true);
+    try {
+      await api.updateText(
+        accountId,
+        bucket,
+        item.key,
+        editText,
+        meta?.content_type ?? "text/plain; charset=utf-8"
+      );
+      setPreviewText(editText);
+      setEditMode(false);
+      message.success("File updated");
+    } catch (e: unknown) {
+      const detail =
+        (e as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? (e as Error)?.message ?? "Unknown error";
+      message.error(`Update failed: ${detail}`);
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -144,49 +184,70 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
   const previewType = detectPreviewType(item, meta?.content_type);
   const filename    = item.key.split("/").pop() || item.key;
 
-  // ─── preview region ────────────────────────────────────────────────────────
+  // ─── content region ────────────────────────────────────────────────────────
 
-  const renderPreview = () => {
+  const renderContent = () => {
     if (previewType === "none") return null;
 
-    if (!previewReady) {
+    if (!contentReady) {
       if (previewType === "text") {
         return (
           <Button
             icon={<EyeOutlined />}
-            loading={previewLoading}
-            onClick={loadTextPreview}
+            loading={contentLoading}
+            onClick={loadTextContent}
             style={{ marginBottom: 16 }}
           >
-            加载文本预览（前 50 KB）
+            Load content
           </Button>
         );
       }
-      if (metaLoading) {
-        return <Spin size="small" />;
-      }
+      if (metaLoading) return <Spin size="small" style={{ marginBottom: 16 }} />;
       return null;
     }
 
     if (previewType === "image" && previewUrl) {
       return (
-        <div style={{ textAlign: "center", marginBottom: 16 }}>
+        <div style={{ position: "relative", textAlign: "center", marginBottom: 16 }}>
           <img
             src={previewUrl}
             alt={filename}
-            style={{ maxWidth: "100%", maxHeight: 480, objectFit: "contain", borderRadius: 4 }}
+            style={{ maxWidth: "100%", maxHeight: 360, objectFit: "contain", borderRadius: 4 }}
           />
+          <Button
+            icon={<FullscreenOutlined />}
+            size="small"
+            onClick={() => setImgFullscreen(true)}
+            style={{
+              position: "absolute",
+              bottom: 8,
+              right: 8,
+              background: "rgba(0,0,0,0.45)",
+              color: "#fff",
+              border: "none",
+            }}
+          />
+          <Modal
+            open={imgFullscreen}
+            onCancel={() => setImgFullscreen(false)}
+            footer={null}
+            width="80vw"
+            centered
+            styles={{ body: { padding: 0, textAlign: "center" } }}
+          >
+            <img
+              src={previewUrl}
+              alt={filename}
+              style={{ maxWidth: "100%", maxHeight: "85vh", objectFit: "contain" }}
+            />
+          </Modal>
         </div>
       );
     }
 
     if (previewType === "audio" && previewUrl) {
       return (
-        <audio
-          controls
-          src={previewUrl}
-          style={{ width: "100%", marginBottom: 16 }}
-        />
+        <audio controls src={previewUrl} style={{ width: "100%", marginBottom: 16 }} />
       );
     }
 
@@ -195,7 +256,7 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
         <video
           controls
           src={previewUrl}
-          style={{ width: "100%", maxHeight: 400, borderRadius: 4, marginBottom: 16 }}
+          style={{ width: "100%", maxHeight: 360, borderRadius: 4, marginBottom: 16 }}
         />
       );
     }
@@ -203,31 +264,69 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
     if (previewType === "text" && previewText !== null) {
       return (
         <div style={{ marginBottom: 16 }}>
-          {previewTruncated && (
-            <Alert
-              type="info"
-              message="仅展示前 50 KB，完整内容请下载"
-              style={{ marginBottom: 8 }}
-              banner
+          {/* toolbar */}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 6 }}>
+            {!editMode && (
+              <Button
+                size="small"
+                icon={<CopyOutlined />}
+                onClick={async () => {
+                  await copyText(previewText);
+                  message.success("Copied");
+                }}
+              >
+                Copy
+              </Button>
+            )}
+            {!editMode ? (
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => { setEditText(previewText); setEditMode(true); }}
+              >
+                Edit
+              </Button>
+            ) : (
+              <>
+                <Button size="small" onClick={() => setEditMode(false)}>Cancel</Button>
+                <Button
+                  size="small"
+                  type="primary"
+                  loading={updating}
+                  onClick={handleUpdate}
+                >
+                  Update
+                </Button>
+              </>
+            )}
+          </div>
+
+          {editMode ? (
+            <Input.TextArea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              autoSize={{ minRows: 10, maxRows: 24 }}
+              style={{ fontFamily: "monospace", fontSize: 12 }}
             />
+          ) : (
+            <pre
+              style={{
+                background: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderRadius: 4,
+                padding: 12,
+                fontSize: 12,
+                lineHeight: 1.6,
+                maxHeight: 440,
+                overflowY: "auto",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all",
+                margin: 0,
+              }}
+            >
+              {previewText}
+            </pre>
           )}
-          <pre
-            style={{
-              background: token.colorFillAlter,
-              border: `1px solid ${token.colorBorderSecondary}`,
-              borderRadius: 4,
-              padding: 12,
-              fontSize: 12,
-              lineHeight: 1.6,
-              maxHeight: 440,
-              overflowY: "auto",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-all",
-              margin: 0,
-            }}
-          >
-            {previewText}
-          </pre>
         </div>
       );
     }
@@ -254,7 +353,7 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
             icon={<DownloadOutlined />}
             href={api.downloadUrl(accountId, bucket, item.key)}
           >
-            下载
+            Download
           </Button>
           <Button
             size="small"
@@ -263,13 +362,13 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
               try {
                 const { url } = await api.presign(accountId, bucket, item.key);
                 await copyText(url);
-                message.success("预签名链接已复制");
+                message.success("Presigned URL copied");
               } catch {
-                message.error("生成预签名链接失败");
+                message.error("Failed to generate presigned URL");
               }
             }}
           >
-            复制预签名链接
+            Copy link
           </Button>
         </Space>
       }
@@ -280,7 +379,7 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
         </div>
       ) : (
         <>
-          {renderPreview()}
+          {renderContent()}
 
           <Descriptions
             column={1}
@@ -288,33 +387,28 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
             bordered
             labelStyle={{ width: 110, color: token.colorTextSecondary }}
           >
-            <Descriptions.Item label="文件名">{filename}</Descriptions.Item>
-            <Descriptions.Item label="完整 Key">
-              <Text
-                copyable
-                style={{ fontSize: 12, wordBreak: "break-all" }}
-              >
+            <Descriptions.Item label="Filename">{filename}</Descriptions.Item>
+            <Descriptions.Item label="Full Key">
+              <Text copyable style={{ fontSize: 12, wordBreak: "break-all" }}>
                 {item.key}
               </Text>
             </Descriptions.Item>
-            <Descriptions.Item label="大小">
+            <Descriptions.Item label="Size">
               {fmtSize(meta?.content_length ?? item.size)}
               {meta?.content_length != null && (
                 <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
-                  ({meta.content_length.toLocaleString()} bytes)
+                  ({meta.content_length.toLocaleString()} B)
                 </Text>
               )}
             </Descriptions.Item>
             <Descriptions.Item label="Content-Type">
-              {meta?.content_type ? (
-                <Tag>{meta.content_type}</Tag>
-              ) : "—"}
+              {meta?.content_type ? <Tag>{meta.content_type}</Tag> : "—"}
             </Descriptions.Item>
-            <Descriptions.Item label="最后修改">
+            <Descriptions.Item label="Last Modified">
               {fmtDate(meta?.last_modified ?? item.last_modified)}
             </Descriptions.Item>
             {meta?.expires && (
-              <Descriptions.Item label="过期时间">
+              <Descriptions.Item label="Expires">
                 <Text type="warning">{fmtDate(meta.expires)}</Text>
               </Descriptions.Item>
             )}
@@ -323,7 +417,7 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
                 {meta?.etag || "—"}
               </Text>
             </Descriptions.Item>
-            <Descriptions.Item label="存储类型">
+            <Descriptions.Item label="Storage">
               {item.storage_class && item.storage_class !== "STANDARD" ? (
                 <Tag color="blue">{item.storage_class}</Tag>
               ) : (
@@ -331,7 +425,7 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
               )}
             </Descriptions.Item>
             {meta?.metadata && Object.keys(meta.metadata).length > 0 && (
-              <Descriptions.Item label="自定义元数据">
+              <Descriptions.Item label="User Metadata">
                 {Object.entries(meta.metadata).map(([k, v]) => (
                   <div key={k} style={{ fontSize: 12 }}>
                     <Text type="secondary">{k}:</Text> {v}

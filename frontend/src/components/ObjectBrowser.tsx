@@ -104,10 +104,10 @@ export function ObjectBrowser({ target }: Props) {
 
   // pagination
   const MAX_TOTAL = 2000;
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(0);
   const [hasNextPage, setHasNextPage] = useState(false);
-  const pageSizeRef = useRef(20);
+  const pageSizeRef = useRef(10);
   // pageTokensRef[i] = continuation_token to fetch page i (undefined = first page)
   const pageTokensRef = useRef<(string | undefined)[]>([undefined]);
 
@@ -205,10 +205,10 @@ export function ObjectBrowser({ target }: Props) {
     setItems([]);
     setHasNextPage(false);
     try {
-      const res = await api.search(accountId, bucket, val, prefix);
+      const res = await api.search(accountId, bucket, val, prefix, pageSize);
       setItems(res.items);
       if (res.is_truncated) {
-        message.info("Results truncated — refine your query for more precision");
+        message.info("Results truncated — refine your prefix to narrow down");
       }
     } catch (e: unknown) {
       message.error(`Search failed: ${(e as Error).message}`);
@@ -551,23 +551,6 @@ export function ObjectBrowser({ target }: Props) {
           enterButton
         />
 
-        <Segmented
-          options={[
-            { label: "20", value: 20 },
-            { label: "50", value: 50 },
-            { label: "100", value: 100 },
-          ]}
-          value={pageSize}
-          onChange={(val) => {
-            const size = val as number;
-            pageSizeRef.current = size;
-            setPageSize(size);
-            setCurrentPage(0);
-            pageTokensRef.current = [undefined];
-            load(prefix, 0, size);
-          }}
-        />
-
         <Space>
           <Tooltip title="Upload files (or drag & drop)">
             <Button
@@ -682,10 +665,10 @@ export function ObjectBrowser({ target }: Props) {
                     load(prefix, p);
                   }}
                 >
-                  上一页
+                  Prev
                 </Button>
                 <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
-                  第 {currentPage + 1} 页
+                  Page {currentPage + 1}
                 </span>
                 <Button
                   size="small"
@@ -696,13 +679,32 @@ export function ObjectBrowser({ target }: Props) {
                     load(prefix, p);
                   }}
                 >
-                  下一页 <RightOutlined />
+                  Next <RightOutlined />
                 </Button>
                 {!hasNextPage && currentPage * pageSize + items.length >= MAX_TOTAL && (
                   <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
-                    已达 {MAX_TOTAL} 条上限，请使用前缀检索
+                    Limit of {MAX_TOTAL} reached — use prefix search to narrow down
                   </span>
                 )}
+                <div style={{ marginLeft: 8, borderLeft: `1px solid ${token.colorBorderSecondary}`, paddingLeft: 12 }}>
+                  <Segmented
+                    size="small"
+                    options={[
+                      { label: "10", value: 10 },
+                      { label: "20", value: 20 },
+                      { label: "50", value: 50 },
+                    ]}
+                    value={pageSize}
+                    onChange={(val) => {
+                      const size = val as number;
+                      pageSizeRef.current = size;
+                      setPageSize(size);
+                      setCurrentPage(0);
+                      pageTokensRef.current = [undefined];
+                      load(prefix, 0, size);
+                    }}
+                  />
+                </div>
               </div>
             )}
           </>

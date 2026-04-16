@@ -381,28 +381,51 @@ def object_meta(account_idx: int, bucket: str, key: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── Text preview ─────────────────────────────────────────────────────────────
+# ─── Text preview & update ───────────────────────────────────────────────────
 
 @app.get("/api/preview/{account_idx}/{bucket}")
 def preview_object(
     account_idx: int,
     bucket: str,
     key: str = Query(...),
-    limit: int = Query(default=51200, le=204800),
+    max_bytes: int = Query(default=5 * 1024 * 1024, le=10 * 1024 * 1024),
 ):
-    """Return first N bytes of an object decoded as text."""
+    """Return full text content of an object (up to max_bytes)."""
     try:
         client = get_client(account_idx)
-        resp = client.get_object(
-            Bucket=bucket, Key=key, Range=f"bytes=0-{limit - 1}"
-        )
-        raw = resp["Body"].read()
-        truncated = resp.get("ContentRange") is not None
+        resp = client.get_object(Bucket=bucket, Key=key)
+        raw = resp["Body"].read(max_bytes)
         try:
             text = raw.decode("utf-8")
         except UnicodeDecodeError:
             text = raw.decode("latin-1")
-        return {"text": text, "truncated": truncated}
+        return {"text": text}
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class TextUpdateRequest(BaseModel):
+    text: str
+    content_type: str = "text/plain; charset=utf-8"
+
+
+@app.put("/api/text/{account_idx}/{bucket}")
+def update_text(
+    account_idx: int,
+    bucket: str,
+    key: str = Query(...),
+    req: TextUpdateRequest = Body(...),
+):
+    """Overwrite a text object with new content."""
+    try:
+        client = get_client(account_idx)
+        client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=req.text.encode("utf-8"),
+            ContentType=req.content_type,
+        )
+        return {"ok": True}
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
 

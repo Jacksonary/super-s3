@@ -103,13 +103,27 @@ export const api = {
   preview(
     accountId: number,
     bucket: string,
-    key: string,
-    limit = 51200
-  ): Promise<{ text: string; truncated: boolean }> {
+    key: string
+  ): Promise<{ text: string }> {
     return axios
       .get(`${BASE}/preview/${accountId}/${encodeURIComponent(bucket)}`, {
-        params: { key, limit },
+        params: { key },
       })
+      .then((r) => r.data);
+  },
+
+  updateText(
+    accountId: number,
+    bucket: string,
+    key: string,
+    text: string,
+    contentType = "text/plain; charset=utf-8"
+  ): Promise<{ ok: boolean }> {
+    return axios
+      .put(`${BASE}/text/${accountId}/${encodeURIComponent(bucket)}`, {
+        text,
+        content_type: contentType,
+      }, { params: { key } })
       .then((r) => r.data);
   },
 
