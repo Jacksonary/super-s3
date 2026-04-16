@@ -14,6 +14,8 @@ import {
   LoadingOutlined,
   ReloadOutlined,
   SettingOutlined,
+  SunOutlined,
+  MoonOutlined,
 } from "@ant-design/icons";
 import { api } from "../api";
 import type { Account, SelectedBucket } from "../types";
@@ -24,9 +26,11 @@ const { Text } = Typography;
 interface Props {
   selected: SelectedBucket | null;
   onSelect: (sel: SelectedBucket) => void;
+  isDark: boolean;
+  onThemeToggle: () => void;
 }
 
-export function Sidebar({ selected, onSelect }: Props) {
+export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
   const { token } = theme.useToken();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,6 +131,12 @@ export function Sidebar({ selected, onSelect }: Props) {
         <Text strong style={{ fontSize: 15 }}>
           🗄️ Super S3
         </Text>
+        <Tooltip title={isDark ? "Light mode" : "Dark mode"}>
+          {isDark
+            ? <SunOutlined onClick={onThemeToggle} style={{ cursor: "pointer", color: token.colorTextSecondary }} />
+            : <MoonOutlined onClick={onThemeToggle} style={{ cursor: "pointer", color: token.colorTextSecondary }} />
+          }
+        </Tooltip>
         <Tooltip title="Reload accounts">
           <ReloadOutlined
             spin={loading}
