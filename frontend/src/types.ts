@@ -15,6 +15,15 @@ export interface AccountConfig {
   buckets: string[];
 }
 
+export interface ObjectMeta {
+  content_type: string | null;
+  content_length: number | null;
+  last_modified: string | null;
+  etag: string | null;
+  expires: string | null;
+  metadata: Record<string, string>;
+}
+
 export interface ObjectItem {
   key: string;
   name: string;

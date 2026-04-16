@@ -1,12 +1,12 @@
 import os
-import io
+from urllib.parse import quote
 from typing import Optional, List
 
 import boto3
 import yaml
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -91,7 +91,7 @@ def get_config():
 
 
 @app.put("/api/config")
-def put_config(accounts: list):
+def put_config(accounts: list = Body(...)):
     """Overwrite the entire config file with the given account list."""
     try:
         with open(CONFIG_PATH, "w") as f:
@@ -278,6 +278,8 @@ def download_object(account_idx: int, bucket: str, key: str = Query(...)):
         client = get_client(account_idx)
         resp = client.get_object(Bucket=bucket, Key=key)
         filename = key.split("/")[-1] or "file"
+        # RFC 5987: safely handle Unicode and special chars in filename
+        encoded_name = quote(filename, safe="")
         content_type = resp.get("ContentType", "application/octet-stream")
         content_length = str(resp.get("ContentLength", ""))
 
@@ -286,7 +288,7 @@ def download_object(account_idx: int, bucket: str, key: str = Query(...)):
                 yield chunk
 
         headers = {
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}",
         }
         if content_length:
             headers["Content-Length"] = content_length
@@ -313,7 +315,7 @@ def presign_object(
             ExpiresIn=expires,
         )
         return {"url": url}
-    except ClientError as e:
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -364,15 +366,43 @@ def object_meta(account_idx: int, bucket: str, key: str = Query(...)):
     try:
         client = get_client(account_idx)
         resp = client.head_object(Bucket=bucket, Key=key)
+        expires = resp.get("Expires")
         return {
             "content_type": resp.get("ContentType"),
             "content_length": resp.get("ContentLength"),
-            "last_modified": resp.get("LastModified", "").isoformat()
+            "last_modified": resp.get("LastModified").isoformat()
             if resp.get("LastModified")
             else None,
             "etag": resp.get("ETag", "").strip('"'),
+            "expires": expires.isoformat() if hasattr(expires, "isoformat") else expires,
             "metadata": resp.get("Metadata", {}),
         }
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Text preview ─────────────────────────────────────────────────────────────
+
+@app.get("/api/preview/{account_idx}/{bucket}")
+def preview_object(
+    account_idx: int,
+    bucket: str,
+    key: str = Query(...),
+    limit: int = Query(default=51200, le=204800),
+):
+    """Return first N bytes of an object decoded as text."""
+    try:
+        client = get_client(account_idx)
+        resp = client.get_object(
+            Bucket=bucket, Key=key, Range=f"bytes=0-{limit - 1}"
+        )
+        raw = resp["Body"].read()
+        truncated = resp.get("ContentRange") is not None
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+        return {"text": text, "truncated": truncated}
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
 

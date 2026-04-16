@@ -2,6 +2,7 @@ import axios from "axios";
 import type {
   Account,
   AccountConfig,
+  ObjectMeta,
   ListResult,
   SearchResult,
   DeleteResult,
@@ -87,6 +88,27 @@ export const api = {
     return axios
       .get(`${BASE}/presign/${accountId}/${encodeURIComponent(bucket)}`, {
         params: { key, expires },
+      })
+      .then((r) => r.data);
+  },
+
+  meta(accountId: number, bucket: string, key: string): Promise<ObjectMeta> {
+    return axios
+      .get(`${BASE}/meta/${accountId}/${encodeURIComponent(bucket)}`, {
+        params: { key },
+      })
+      .then((r) => r.data);
+  },
+
+  preview(
+    accountId: number,
+    bucket: string,
+    key: string,
+    limit = 51200
+  ): Promise<{ text: string; truncated: boolean }> {
+    return axios
+      .get(`${BASE}/preview/${accountId}/${encodeURIComponent(bucket)}`, {
+        params: { key, limit },
       })
       .then((r) => r.data);
   },
