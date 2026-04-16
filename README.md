@@ -44,7 +44,7 @@ docker run -d \
   -v $(pwd)/config.yaml:/config/config.yaml \
   -e CONFIG_PATH=/config/config.yaml \
   --restart unless-stopped \
-  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.1.0
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.2.0
 ```
 
 访问 <http://localhost:8080> 即可使用。
