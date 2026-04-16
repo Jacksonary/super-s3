@@ -6,6 +6,7 @@ import {
   message,
   Tooltip,
   theme,
+  Space,
 } from "antd";
 import type { DataNode } from "antd/es/tree";
 import {
@@ -16,6 +17,7 @@ import {
   SettingOutlined,
   SunOutlined,
   MoonOutlined,
+  CloudServerOutlined,
 } from "@ant-design/icons";
 import { api } from "../api";
 import type { Account, SelectedBucket } from "../types";
@@ -128,9 +130,10 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
           flexShrink: 0,
         }}
       >
-        <Text strong style={{ fontSize: 15 }}>
-          🗄️ Super S3
-        </Text>
+        <Space size={6} align="center">
+          <CloudServerOutlined style={{ fontSize: 18, color: token.colorPrimary }} />
+          <Text strong style={{ fontSize: 15 }}>Super S3</Text>
+        </Space>
         <Tooltip title={isDark ? "Light mode" : "Dark mode"}>
           {isDark
             ? <SunOutlined onClick={onThemeToggle} style={{ cursor: "pointer", color: token.colorTextSecondary }} />
