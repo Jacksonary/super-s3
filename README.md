@@ -2,6 +2,8 @@
 
 轻量级多云对象存储管理工具，支持 AWS S3、华为云 OBS、阿里云 OSS、火山云 TOS、百度云 BOS 等所有 S3 兼容协议的对象存储服务。
 
+**仓库地址**：[GitHub](https://github.com/Jacksonary/super-s3) | [Gitee](https://gitee.com/weiguoliu/super-s3)
+
 ## 功能特性
 
 - **多账号管理**：支持同时配置任意数量的云账号，侧栏树形展示；支持在页面内直接新增、编辑、删除账号，无需登录宿主机改配置文件
@@ -44,7 +46,7 @@ docker run -d \
   -v $(pwd)/config.yaml:/config/config.yaml \
   -e CONFIG_PATH=/config/config.yaml \
   --restart unless-stopped \
-  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.2.0
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.0.6
 ```
 
 访问 <http://localhost:8080> 即可使用。
@@ -125,7 +127,7 @@ docker compose up -d
 `docker-compose.yml` 默认使用本地构建镜像。如需直接使用预构建镜像，将文件中的 `build: .` 替换为：
 
 ```yaml
-image: registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.1.0
+image: registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.0.6
 ```
 
 重新加载配置（修改 config.yaml 后重启即可）：
@@ -145,7 +147,7 @@ docker run -d \
   -v $(pwd)/config.yaml:/config/config.yaml \
   -e CONFIG_PATH=/config/config.yaml \
   --restart unless-stopped \
-  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.1.0
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.0.6
 ```
 
 ---
@@ -188,3 +190,9 @@ npm run dev   # 访问 http://localhost:5173，自动代理 /api 到 :8080
 | 百度云 BOS | `https://s3.{region}.bcebos.com` |
 | 腾讯云 COS | `https://cos.{region}.myqcloud.com` |
 | MinIO | `http://your-minio-host:9000` |
+
+---
+
+## 许可证
+
+本项目基于 [Apache License 2.0](LICENSE) 开源。
