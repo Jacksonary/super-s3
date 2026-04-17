@@ -10,6 +10,7 @@ import {
 } from "antd";
 import type { DataNode } from "antd/es/tree";
 import {
+  ArrowRightOutlined,
   DatabaseOutlined,
   InboxOutlined,
   LoadingOutlined,
@@ -22,6 +23,7 @@ import {
 } from "@ant-design/icons";
 import { api } from "../api";
 import type { Account, SelectedBucket } from "../types";
+import { useUpdateCheck } from "../useUpdateCheck";
 import { ConfigModal } from "./ConfigModal";
 
 const { Text } = Typography;
@@ -39,15 +41,26 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
   const [loading, setLoading] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [configOpen, setConfigOpen] = useState(false);
+  const updateInfo = useUpdateCheck(__APP_VERSION__);
 
   const loadAccounts = async () => {
     setLoading(true);
     try {
       const data = await api.accounts();
-      setAccounts(data);
-      // auto-expand first account
-      if (data.length > 0) {
-        setExpandedKeys([`account-${data[0].id}`]);
+      const resolved = await Promise.all(
+        data.map(async (acct) => {
+          if (acct.buckets.length > 0) return acct;
+          try {
+            const { buckets } = await api.buckets(acct.id);
+            return { ...acct, buckets };
+          } catch {
+            return acct;
+          }
+        })
+      );
+      setAccounts(resolved);
+      if (resolved.length > 0) {
+        setExpandedKeys([`account::${resolved[0].id}`]);
       }
     } catch {
       message.error("Failed to load accounts");
@@ -61,7 +74,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
   }, []);
 
   const treeData: DataNode[] = accounts.map((acct) => ({
-    key: `account-${acct.id}`,
+    key: `account::${acct.id}`,
     title: (
       <span style={{ fontWeight: 600, fontSize: 13 }}>
         <DatabaseOutlined style={{ marginRight: 6, color: token.colorPrimary }} />
@@ -72,7 +85,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
       const isSelected =
         selected?.accountId === acct.id && selected?.bucket === b;
       return {
-        key: `bucket-${acct.id}-${b}`,
+        key: `bucket::${acct.id}::${b}`,
         isLeaf: true,
         title: (
           <Tooltip title={b} placement="right" mouseEnterDelay={0.8}>
@@ -97,39 +110,26 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
 
   const handleSelect = (keys: React.Key[]) => {
     const key = keys[0] as string;
-    if (!key?.startsWith("bucket-")) return;
-    const parts = key.slice("bucket-".length).split("-");
-    const accountId = parseInt(parts[0], 10);
-    const bucket = parts.slice(1).join("-");
+    if (!key?.startsWith("bucket::")) return;
+    const parts = key.split("::");
+    const accountId = parseInt(parts[1], 10);
+    const bucket = parts.slice(2).join("::");
     onSelect({ accountId, bucket });
   };
 
   const selectedKeys = selected
-    ? [`bucket-${selected.accountId}-${selected.bucket}`]
+    ? [`bucket::${selected.accountId}::${selected.bucket}`]
     : [];
 
   return (
     <div
-      style={{
-        width: 240,
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        borderRight: `1px solid ${token.colorBorderSecondary}`,
-        background: token.colorBgContainer,
-        overflow: "hidden",
-      }}
+      className="sidebar-container"
+      style={{ background: token.colorBgContainer }}
     >
       {/* Header */}
       <div
-        style={{
-          padding: "14px 16px 10px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderBottom: `1px solid ${token.colorBorderSecondary}`,
-          flexShrink: 0,
-        }}
+        className="sidebar-header"
+        style={{ borderBottom: `1px solid ${token.colorBorderSecondary}` }}
       >
         <Space size={6} align="center">
           <CloudServerOutlined style={{ fontSize: 18, color: token.colorPrimary }} />
@@ -148,7 +148,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
             style={{ cursor: "pointer", color: token.colorTextSecondary }}
           />
         </Tooltip>
-        <Tooltip title="账号管理">
+        <Tooltip title="Account management">
           <SettingOutlined
             onClick={() => setConfigOpen(true)}
             style={{ cursor: "pointer", color: token.colorTextSecondary }}
@@ -178,25 +178,33 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
 
       {/* Footer */}
       <div
-        style={{
-          padding: "8px 16px",
-          borderTop: `1px solid ${token.colorBorderSecondary}`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
-        }}
+        className="sidebar-footer"
+        style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }}
       >
-        <Text style={{ fontSize: 11, color: token.colorTextQuaternary }}>
-          v1.6.0 · jacksonary
-        </Text>
-        <Space size={8}>
+        {updateInfo ? (
+          <Tooltip title={`New version available: v${updateInfo.latestVersion}`}>
+            <a
+              href={updateInfo.releaseUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 11, color: token.colorWarningText }}
+            >
+              v{__APP_VERSION__} <ArrowRightOutlined style={{ fontSize: 9 }} /> v{updateInfo.latestVersion}
+            </a>
+          </Tooltip>
+        ) : (
+          <Text style={{ fontSize: 11, color: token.colorTextQuaternary }}>
+            v{__APP_VERSION__} · jacksonary
+          </Text>
+        )}
+        <Space size={8} align="center">
           <Tooltip title="GitHub">
             <a
               href="https://github.com/Jacksonary/super-s3"
               target="_blank"
               rel="noreferrer"
-              style={{ color: token.colorTextQuaternary, fontSize: 13 }}
+              className="sidebar-icon-link"
+              style={{ color: token.colorTextQuaternary }}
             >
               <GithubOutlined />
             </a>
@@ -206,9 +214,10 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
               href="https://gitee.com/weiguoliu/super-s3"
               target="_blank"
               rel="noreferrer"
-              style={{ color: token.colorTextQuaternary, fontSize: 13 }}
+              className="sidebar-icon-link"
+              style={{ color: token.colorTextQuaternary }}
             >
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+              <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor">
                 <path d="M11.984 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.016 0zm6.09 5.333c.328 0 .593.26.593.593v1.482a.594.594 0 0 1-.593.592H9.777c-.982 0-1.778.796-1.778 1.778v5.63c0 .327.26.593.593.593h5.63c.982 0 1.778-.796 1.778-1.778v-.296a.593.593 0 0 0-.592-.593h-4.15a.592.592 0 0 1-.592-.592v-1.482a.593.593 0 0 1 .593-.592h6.815c.327 0 .593.265.593.592v3.408a4 4 0 0 1-4 4H5.926a.593.593 0 0 1-.593-.593V9.778a4.444 4.444 0 0 1 4.445-4.444h8.296Z"/>
               </svg>
             </a>
@@ -218,10 +227,8 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle }: Props) {
 
       <ConfigModal
         open={configOpen}
-        onClose={(reloaded) => {
-          setConfigOpen(false);
-          if (reloaded) loadAccounts();
-        }}
+        onClose={() => setConfigOpen(false)}
+        onChange={loadAccounts}
       />
     </div>
   );

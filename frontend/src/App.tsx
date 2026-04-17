@@ -43,16 +43,7 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
           {selected ? (
             <ObjectBrowser key={`${selected.accountId}-${selected.bucket}`} target={selected} />
           ) : (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                height: "100vh",
-                flexDirection: "column",
-                gap: 8,
-              }}
-            >
+            <div className="content-center" style={{ height: "100vh" }}>
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description={
@@ -81,10 +72,12 @@ export default function App() {
   };
 
   return (
-    <ConfigProvider
-      theme={{ algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm }}
-    >
-      <AppContent isDark={isDark} onThemeToggle={toggleTheme} />
-    </ConfigProvider>
+    <div data-theme={isDark ? "dark" : "light"}>
+      <ConfigProvider
+        theme={{ algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm }}
+      >
+        <AppContent isDark={isDark} onThemeToggle={toggleTheme} />
+      </ConfigProvider>
+    </div>
   );
 }
