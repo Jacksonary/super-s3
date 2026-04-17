@@ -22,6 +22,12 @@
 - **新建文件夹**：创建虚拟目录
 - **预签名链接**：生成带时效的下载链接（默认 1 小时），兼容 HTTP 环境下的剪贴板写入
 
+## 界面预览
+
+| 主界面 | 账户管理 | 对象详情 |
+|--------|----------|----------|
+| ![主界面](docs/images/main.png) | ![账户管理](docs/images/account.png) | ![对象详情](docs/images/detail.png) |
+
 ---
 
 ## 快速开始
@@ -196,3 +202,21 @@ npm run dev   # 访问 http://localhost:5173，自动代理 /api 到 :8080
 ## 许可证
 
 本项目基于 [Apache License 2.0](LICENSE) 开源。
+
+---
+
+## 打赏支持
+
+如果这个项目对你有帮助，欢迎请作者喝瓶啤酒 🍺
+
+<p align="center">
+  <table align="center"><tr>
+    <td align="center">
+      <img src="docs/images/weixinpay.png" width="240" alt="微信打赏"><br>微信
+    </td>
+    <td width="60"></td>
+    <td align="center">
+      <img src="docs/images/alipay.png" width="240" alt="支付宝打赏"><br>支付宝
+    </td>
+  </tr></table>
+</p>
