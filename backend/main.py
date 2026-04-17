@@ -1,5 +1,9 @@
+import io
+import logging
 import os
 import re
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 from typing import Optional, List
@@ -7,12 +11,13 @@ from typing import Optional, List
 import boto3
 import yaml
 from botocore.config import Config
-from botocore.exceptions import ClientError
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+logger = logging.getLogger("super-s3")
 
 app = FastAPI(title="Super S3 Manager")
 
@@ -30,8 +35,17 @@ CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/config.yaml")
 
 
 def load_config() -> list:
-    with open(CONFIG_PATH, "r") as f:
-        data = yaml.safe_load(f)
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            data = yaml.safe_load(f)
+    except FileNotFoundError:
+        logger.warning("Config file not found: %s, returning empty list", CONFIG_PATH)
+        return []
+    except yaml.YAMLError as e:
+        logger.error("Failed to parse config file: %s", e)
+        raise HTTPException(status_code=500, detail=f"Malformed config file: {e}")
+    if data is None:
+        return []
     return data if isinstance(data, list) else [data]
 
 
@@ -57,6 +71,11 @@ def _provider_name(endpoint: str) -> str:
     return host
 
 
+def _is_qiniu(endpoint: str) -> bool:
+    ep = endpoint.lower()
+    return "qiniucs" in ep or "qbox" in ep
+
+
 def make_client(account: dict):
     endpoint = account.get("endpoint") or ""
     ep = endpoint.lower()
@@ -77,11 +96,32 @@ def make_client(account: dict):
     )
 
 
-def get_client(account_idx: int):
+def _get_account(account_idx: int) -> dict:
     accounts = load_config()
     if account_idx < 0 or account_idx >= len(accounts):
         raise HTTPException(status_code=404, detail="Account not found")
-    return make_client(accounts[account_idx])
+    return accounts[account_idx]
+
+
+def _make_client_safe(acct: dict):
+    try:
+        return make_client(acct)
+    except ValueError as e:
+        endpoint = acct.get("endpoint", "")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid endpoint '{endpoint}': {e}. "
+                   "Make sure the endpoint does not contain the bucket name.",
+        )
+
+
+def get_client(account_idx: int):
+    return _make_client_safe(_get_account(account_idx))
+
+
+def get_client_with_endpoint(account_idx: int):
+    acct = _get_account(account_idx)
+    return _make_client_safe(acct), acct.get("endpoint", "")
 
 
 # ─── Config CRUD ─────────────────────────────────────────────────────────────
@@ -142,11 +182,36 @@ def list_buckets(account_idx: int):
         client = get_client(account_idx)
         resp = client.list_buckets()
         return {"buckets": [b["Name"] for b in resp.get("Buckets", [])]}
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("S3 operation failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ─── Objects ─────────────────────────────────────────────────────────────────
+
+
+def _list_objects_compat(client, endpoint: str, **kwargs):
+    """
+    Call list_objects_v2 by default.  For providers that don't support V2
+    (e.g. Qiniu Kodo), fall back to list_objects (V1) and normalise the
+    response so callers always see the same shape.
+    """
+    if _is_qiniu(endpoint):
+        # V1 uses Marker instead of ContinuationToken
+        ct = kwargs.pop("ContinuationToken", None)
+        if ct:
+            kwargs["Marker"] = ct
+        resp = client.list_objects(**kwargs)
+        # Normalise: V1 has no NextContinuationToken / KeyCount
+        contents = resp.get("Contents", [])
+        next_marker = resp.get("NextMarker", "")
+        if not next_marker and resp.get("IsTruncated") and contents:
+            next_marker = contents[-1]["Key"]
+        resp["NextContinuationToken"] = next_marker or None
+        resp["KeyCount"] = len(contents) + len(resp.get("CommonPrefixes", []))
+        return resp
+    return client.list_objects_v2(**kwargs)
+
 
 @app.get("/api/objects/{account_idx}/{bucket}")
 def list_objects(
@@ -163,7 +228,7 @@ def list_objects(
     Pass delimiter='' to list recursively (used by search).
     """
     try:
-        client = get_client(account_idx)
+        client, endpoint = get_client_with_endpoint(account_idx)
         kwargs: dict = {
             "Bucket": bucket,
             "Prefix": prefix,
@@ -174,7 +239,7 @@ def list_objects(
         if continuation_token:
             kwargs["ContinuationToken"] = continuation_token
 
-        resp = client.list_objects_v2(**kwargs)
+        resp = _list_objects_compat(client, endpoint, **kwargs)
 
         folders = [
             {
@@ -211,7 +276,8 @@ def list_objects(
             "is_truncated": resp.get("IsTruncated", False),
             "key_count": resp.get("KeyCount", 0),
         }
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("list_objects failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -226,7 +292,7 @@ def search_objects(
 ):
     """Recursive prefix search – no delimiter, cursor-based pagination."""
     try:
-        client = get_client(account_idx)
+        client, endpoint = get_client_with_endpoint(account_idx)
         kwargs: dict = {
             "Bucket": bucket,
             "Prefix": prefix + q,
@@ -234,7 +300,7 @@ def search_objects(
         }
         if continuation_token:
             kwargs["ContinuationToken"] = continuation_token
-        resp = client.list_objects_v2(**kwargs)
+        resp = _list_objects_compat(client, endpoint, **kwargs)
         items = [
             {
                 "key": obj["Key"],
@@ -252,7 +318,32 @@ def search_objects(
             "is_truncated": resp.get("IsTruncated", False),
             "next_continuation_token": resp.get("NextContinuationToken"),
         }
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("search_objects failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Rename ──────────────────────────────────────────────────────────────────
+
+
+class RenameRequest(BaseModel):
+    src_key: str
+    dst_key: str
+
+
+@app.post("/api/rename/{account_idx}/{bucket}")
+def rename_object(account_idx: int, bucket: str, req: RenameRequest):
+    try:
+        client = get_client(account_idx)
+        client.copy_object(
+            Bucket=bucket,
+            Key=req.dst_key,
+            CopySource={"Bucket": bucket, "Key": req.src_key},
+        )
+        client.delete_object(Bucket=bucket, Key=req.src_key)
+        return {"success": True, "src": req.src_key, "dst": req.dst_key}
+    except Exception as e:
+        logger.exception("rename_object failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -282,7 +373,8 @@ def delete_objects(account_idx: int, bucket: str, req: DeleteRequest):
             deleted += len(batch) - len(resp.get("Errors", []))
             errors.extend(resp.get("Errors", []))
         return {"deleted": deleted, "errors": errors}
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("S3 operation failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -314,7 +406,57 @@ def download_object(account_idx: int, bucket: str, key: str = Query(...)):
         return StreamingResponse(
             stream(), media_type=content_type, headers=headers
         )
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("S3 operation failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Batch download (zip) ───────────────────────────────────────────────────
+
+
+class DownloadZipRequest(BaseModel):
+    keys: List[str]
+
+
+@app.post("/api/download-zip/{account_idx}/{bucket}")
+def download_zip(
+    account_idx: int,
+    bucket: str,
+    req: DownloadZipRequest,
+    filename: str = Query(default=""),
+    strip_prefix: str = Query(default=""),
+):
+    if not req.keys:
+        raise HTTPException(status_code=400, detail="No keys provided")
+    try:
+        client = get_client(account_idx)
+
+        def fetch_one(key: str) -> tuple:
+            resp = client.get_object(Bucket=bucket, Key=key)
+            return key, resp["Body"].read()
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            results = list(pool.map(fetch_one, req.keys))
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for key, data in results:
+                entry = key[len(strip_prefix):] if strip_prefix and key.startswith(strip_prefix) else key
+                zf.writestr(entry, data)
+        buf.seek(0)
+
+        zip_name = filename or f"{bucket}.zip"
+        if not zip_name.endswith(".zip"):
+            zip_name += ".zip"
+        return StreamingResponse(
+            buf,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(zip_name, safe='')}",
+            },
+        )
+    except Exception as e:
+        logger.exception("download_zip failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -358,7 +500,8 @@ async def upload_object(
             ContentType=file.content_type or "application/octet-stream",
         )
         return {"success": True, "key": key, "size": len(data)}
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("S3 operation failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -375,7 +518,8 @@ def create_folder(account_idx: int, bucket: str, req: FolderRequest):
         client = get_client(account_idx)
         client.put_object(Bucket=bucket, Key=folder_key, Body=b"")
         return {"success": True, "key": folder_key}
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("S3 operation failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -422,7 +566,8 @@ def object_meta(account_idx: int, bucket: str, key: str = Query(...)):
             "expires": expire_iso,
             "metadata": resp.get("Metadata", {}),
         }
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("S3 operation failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -445,7 +590,8 @@ def preview_object(
         except UnicodeDecodeError:
             text = raw.decode("latin-1")
         return {"text": text}
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("S3 operation failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -471,7 +617,8 @@ def update_text(
             ContentType=req.content_type,
         )
         return {"ok": True}
-    except ClientError as e:
+    except Exception as e:
+        logger.exception("S3 operation failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 

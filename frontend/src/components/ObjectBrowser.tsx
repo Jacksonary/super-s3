@@ -17,7 +17,7 @@ import {
   Form,
   theme,
   Badge,
-  Segmented,
+  Select,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
@@ -29,6 +29,8 @@ import {
   DownloadOutlined,
   LinkOutlined,
   ReloadOutlined,
+  CloseCircleOutlined,
+  EditOutlined,
   SearchOutlined,
   LoadingOutlined,
   CopyOutlined,
@@ -36,43 +38,12 @@ import {
   LeftOutlined,
   RightOutlined,
 } from "@ant-design/icons";
-import dayjs from "dayjs";
 import { api } from "../api";
 import type { ObjectItem, SelectedBucket } from "../types";
+import { fmtSize, fmtDate, copyText } from "../utils";
 import { DetailDrawer } from "./DetailDrawer";
 
 const { Text } = Typography;
-
-// ─── helpers ────────────────────────────────────────────────────────────────
-
-function fmtSize(bytes: number | null): string {
-  if (bytes === null) return "—";
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  return dayjs(iso).format("YYYY-MM-DD HH:mm");
-}
-
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard) {
-    await navigator.clipboard.writeText(text);
-  } else {
-    // fallback for HTTP (non-localhost) contexts
-    const el = document.createElement("textarea");
-    el.value = text;
-    el.style.position = "fixed";
-    el.style.opacity = "0";
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand("copy");
-    document.body.removeChild(el);
-  }
-}
 
 // ─── UploadQueue ────────────────────────────────────────────────────────────
 
@@ -82,6 +53,8 @@ interface UploadTask {
   progress: number;
   done: boolean;
   error?: string;
+  file?: File;
+  key?: string;
 }
 
 // ─── Main component ─────────────────────────────────────────────────────────
@@ -101,6 +74,7 @@ export function ObjectBrowser({ target }: Props) {
   const [searchText, setSearchText] = useState("");
   const [searching, setSearching] = useState(false);
   const [isSearchMode, setIsSearchMode] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // pagination
   const MAX_TOTAL = 2000;
@@ -119,11 +93,16 @@ export function ObjectBrowser({ target }: Props) {
   const [folderModal, setFolderModal] = useState(false);
   const [folderForm] = Form.useForm();
 
-  // drag-over state
+  // drag-over state (counter avoids flicker from child dragLeave events)
   const [dragOver, setDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
 
   // detail drawer
   const [drawerItem, setDrawerItem] = useState<ObjectItem | null>(null);
+
+  // rename modal
+  const [renameItem, setRenameItem] = useState<ObjectItem | null>(null);
+  const [renameForm] = Form.useForm();
 
   // ─── Load objects ──────────────────────────────────────────────────────
 
@@ -240,12 +219,11 @@ export function ObjectBrowser({ target }: Props) {
   const deleteSelected = async () => {
     const keys = selectedRowKeys as string[];
     if (!keys.length) return;
+    setDeleting(true);
     try {
-      // Folders: also recursively collect keys
       const toDelete: string[] = [];
       for (const k of keys) {
         if (k.endsWith("/")) {
-          // collect all objects under this folder prefix
           let ct: string | null | undefined;
           do {
             const res = await api.listObjects(accountId, bucket, {
@@ -257,6 +235,9 @@ export function ObjectBrowser({ target }: Props) {
             res.items.forEach((i) => toDelete.push(i.key));
             ct = res.next_continuation_token;
           } while (ct);
+          if (!toDelete.includes(k)) {
+            toDelete.push(k);
+          }
         } else {
           toDelete.push(k);
         }
@@ -271,13 +252,14 @@ export function ObjectBrowser({ target }: Props) {
       reload();
     } catch (e: unknown) {
       message.error(`Delete failed: ${(e as Error).message}`);
+    } finally {
+      setDeleting(false);
     }
   };
 
   const handleDeleteRow = async (item: ObjectItem) => {
     const keysToDelete = item.type === "folder" ? [] : [item.key];
     if (item.type === "folder") {
-      // recursive collect
       let ct: string | null | undefined;
       do {
         const res = await api.listObjects(accountId, bucket, {
@@ -293,51 +275,90 @@ export function ObjectBrowser({ target }: Props) {
     if (!keysToDelete.length) {
       keysToDelete.push(item.key);
     }
+    setDeleting(true);
     try {
       const result = await api.deleteObjects(accountId, bucket, keysToDelete);
       message.success(`Deleted ${result.deleted} object(s)`);
       reload();
     } catch (e: unknown) {
       message.error(`Delete failed: ${(e as Error).message}`);
+    } finally {
+      setDeleting(false);
     }
   };
 
   // ─── Upload ────────────────────────────────────────────────────────────
 
+  const doUpload = async (filesToUpload: File[]) => {
+    const CONCURRENCY = 5;
+    let idx = 0;
+
+    const worker = async () => {
+      while (idx < filesToUpload.length) {
+        const i = idx++;
+        const file = filesToUpload[i];
+        const taskId = `${Date.now()}-${i}-${file.name}`;
+        const key = prefix + file.name;
+        setUploads((prev) => [
+          ...prev,
+          { id: taskId, filename: file.name, progress: 0, done: false, file, key },
+        ]);
+        try {
+          await api.uploadObject(accountId, bucket, key, file, (pct) => {
+            setUploads((prev) =>
+              prev.map((u) => (u.id === taskId ? { ...u, progress: pct } : u))
+            );
+          });
+          setUploads((prev) =>
+            prev.map((u) =>
+              u.id === taskId ? { ...u, progress: 100, done: true } : u
+            )
+          );
+          setTimeout(() => {
+            setUploads((prev) => prev.filter((u) => u.id !== taskId));
+          }, 2500);
+        } catch (e: unknown) {
+          setUploads((prev) =>
+            prev.map((u) =>
+              u.id === taskId
+                ? { ...u, error: (e as Error).message, done: true }
+                : u
+            )
+          );
+        }
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(CONCURRENCY, filesToUpload.length) },
+      () => worker()
+    );
+    await Promise.all(workers);
+    reload();
+  };
+
   const uploadFiles = async (files: FileList | File[]) => {
     const arr = Array.from(files);
-    for (const file of arr) {
-      const taskId = `${Date.now()}-${file.name}`;
-      const key = prefix + file.name;
-      setUploads((prev) => [
-        ...prev,
-        { id: taskId, filename: file.name, progress: 0, done: false },
-      ]);
-      try {
-        await api.uploadObject(accountId, bucket, key, file, (pct) => {
-          setUploads((prev) =>
-            prev.map((u) => (u.id === taskId ? { ...u, progress: pct } : u))
-          );
-        });
-        setUploads((prev) =>
-          prev.map((u) =>
-            u.id === taskId ? { ...u, progress: 100, done: true } : u
-          )
-        );
-        setTimeout(() => {
-          setUploads((prev) => prev.filter((u) => u.id !== taskId));
-        }, 2500);
-      } catch (e: unknown) {
-        setUploads((prev) =>
-          prev.map((u) =>
-            u.id === taskId
-              ? { ...u, error: (e as Error).message, done: true }
-              : u
-          )
-        );
-      }
+    const existingKeys = new Set(items.map((i) => i.key));
+    const duplicates = arr.filter((f) => existingKeys.has(prefix + f.name));
+
+    if (duplicates.length > 0) {
+      const names = duplicates.map((f) => f.name);
+      const label =
+        names.length <= 3
+          ? names.join(", ")
+          : `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
+      Modal.confirm({
+        title: "File already exists",
+        content: `${label} already exist in this directory. Overwrite?`,
+        okText: "Overwrite",
+        okButtonProps: { danger: true },
+        cancelText: "Cancel",
+        onOk: () => doUpload(arr),
+      });
+    } else {
+      doUpload(arr);
     }
-    reload();
   };
 
   // ─── Drag & drop ───────────────────────────────────────────────────────
@@ -362,6 +383,104 @@ export function ObjectBrowser({ target }: Props) {
         (e as { response?: { data?: { detail?: string } } })?.response?.data
           ?.detail ?? (e as Error)?.message ?? "Unknown error";
       message.error(`Failed to generate presigned URL: ${detail}`);
+    }
+  };
+
+  // ─── Batch download ─────────────────────────────────────────────────────
+
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadSelected = async () => {
+    const keys = selectedRowKeys as string[];
+    if (!keys.length) return;
+
+    setDownloading(true);
+    const hide = message.loading("Preparing download...", 0);
+    try {
+      const fileKeys: string[] = [];
+      for (const k of keys) {
+        if (k.endsWith("/")) {
+          let ct: string | null | undefined;
+          do {
+            const res = await api.listObjects(accountId, bucket, {
+              prefix: k,
+              delimiter: "",
+              continuation_token: ct ?? undefined,
+              limit: 1000,
+            });
+            res.items.forEach((i) => fileKeys.push(i.key));
+            ct = res.next_continuation_token;
+          } while (ct);
+        } else {
+          fileKeys.push(k);
+        }
+      }
+      if (!fileKeys.length) {
+        message.warning("No files to download");
+        return;
+      }
+
+      if (fileKeys.length === 1) {
+        const a = document.createElement("a");
+        a.href = api.downloadUrl(accountId, bucket, fileKeys[0]);
+        a.click();
+      } else {
+        const folders = keys.filter((k) => k.endsWith("/"));
+        const isSingleFolder = keys.length === 1 && folders.length === 1;
+        const zipName = isSingleFolder
+          ? folders[0].replace(/\/$/, "").split("/").pop() || bucket
+          : bucket;
+        const stripPrefix = isSingleFolder ? folders[0] : prefix;
+        const blob = await api.downloadZip(accountId, bucket, fileKeys, {
+          filename: zipName,
+          stripPrefix,
+        });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${zipName}.zip`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+      message.success(`Downloaded ${fileKeys.length} file(s)`);
+    } catch (e: unknown) {
+      message.error(`Download failed: ${(e as Error).message}`);
+    } finally {
+      hide();
+      setDownloading(false);
+    }
+  };
+
+  // ─── Rename ────────────────────────────────────────────────────────────
+
+  const openRename = (item: ObjectItem) => {
+    setRenameItem(item);
+    const name = item.key.split("/").pop() || item.key;
+    renameForm.setFieldsValue({ name });
+  };
+
+  const handleRename = async () => {
+    if (!renameItem) return;
+    const values = await renameForm.validateFields();
+    const newName = (values.name as string).trim();
+    if (!newName) return;
+    const parts = renameItem.key.split("/");
+    parts[parts.length - 1] = newName;
+    const dstKey = parts.join("/");
+    if (dstKey === renameItem.key) {
+      setRenameItem(null);
+      return;
+    }
+    try {
+      await api.rename(accountId, bucket, renameItem.key, dstKey);
+      message.success("Renamed successfully");
+      setRenameItem(null);
+      renameForm.resetFields();
+      reload();
+    } catch (e: unknown) {
+      const detail =
+        (e as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? (e as Error)?.message ?? "Unknown error";
+      message.error(`Rename failed: ${detail}`);
     }
   };
 
@@ -390,30 +509,64 @@ export function ObjectBrowser({ target }: Props) {
       dataIndex: "name",
       key: "name",
       ellipsis: true,
-      render: (name: string, row) => (
-        <Space size={6}>
-          {row.type === "folder" ? (
-            <FolderOutlined style={{ color: "#faad14", fontSize: 16 }} />
-          ) : (
+      render: (name: string, row) => {
+        if (row.type === "folder") {
+          return (
+            <Space size={6}>
+              <FolderOutlined style={{ color: "#faad14", fontSize: 16 }} />
+              <a
+                onClick={() => navigate(row.key)}
+                style={{ fontWeight: 500, color: token.colorText }}
+              >
+                {name}
+              </a>
+            </Space>
+          );
+        }
+
+        if (isSearchMode) {
+          const lastSlash = row.key.lastIndexOf("/");
+          const file = lastSlash >= 0 ? row.key.slice(lastSlash + 1) : row.key;
+          const dirSegments = lastSlash >= 0
+            ? row.key.slice(0, lastSlash).split("/").filter(Boolean)
+            : [];
+          return (
+            <Space size={4}>
+              <FileOutlined style={{ color: token.colorTextSecondary, fontSize: 14 }} />
+              <span>
+                {dirSegments.map((seg, i) => (
+                  <span
+                    key={i}
+                    className="search-dir"
+                    onClick={() => navigate(dirSegments.slice(0, i + 1).join("/") + "/")}
+                  >
+                    {seg}/
+                  </span>
+                ))}
+                <a
+                  className="search-file"
+                  onClick={() => setDrawerItem(row)}
+                  style={{ color: token.colorText }}
+                >
+                  {file}
+                </a>
+              </span>
+            </Space>
+          );
+        }
+
+        return (
+          <Space size={6}>
             <FileOutlined style={{ color: token.colorTextSecondary, fontSize: 14 }} />
-          )}
-          {row.type === "folder" ? (
-            <a
-              onClick={() => navigate(row.key)}
-              style={{ fontWeight: 500, color: token.colorText }}
-            >
-              {name}
-            </a>
-          ) : (
             <a
               onClick={() => setDrawerItem(row)}
               style={{ color: token.colorText }}
             >
-              {isSearchMode ? row.key : name}
+              {name}
             </a>
-          )}
-        </Space>
-      ),
+          </Space>
+        );
+      },
     },
     {
       title: "Size",
@@ -428,7 +581,7 @@ export function ObjectBrowser({ target }: Props) {
       dataIndex: "last_modified",
       key: "last_modified",
       width: 160,
-      render: fmtDate,
+      render: (v: string | null) => fmtDate(v),
     },
     {
       title: "Storage",
@@ -445,7 +598,7 @@ export function ObjectBrowser({ target }: Props) {
     {
       title: "",
       key: "actions",
-      width: 120,
+      width: 150,
       render: (_, row) => (
         <Space size={4} className="row-actions">
           {row.type === "file" && (
@@ -479,6 +632,16 @@ export function ObjectBrowser({ target }: Props) {
               }}
             />
           </Tooltip>
+          {row.type === "file" && (
+            <Tooltip title="Rename">
+              <Button
+                size="small"
+                type="text"
+                icon={<EditOutlined />}
+                onClick={() => openRename(row)}
+              />
+            </Tooltip>
+          )}
           <Popconfirm
             title={`Delete "${row.name}"?`}
             description={
@@ -508,13 +671,21 @@ export function ObjectBrowser({ target }: Props) {
 
   return (
     <div
-      style={{ display: "flex", flexDirection: "column", height: "100vh", position: "relative" }}
-      onDragOver={(e) => {
+      className="browser-root"
+      onDragEnter={(e) => {
         e.preventDefault();
+        dragCounterRef.current++;
         setDragOver(true);
       }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={onDrop}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={() => {
+        dragCounterRef.current--;
+        if (dragCounterRef.current === 0) setDragOver(false);
+      }}
+      onDrop={(e) => {
+        dragCounterRef.current = 0;
+        onDrop(e);
+      }}
     >
       {dragOver && (
         <div className="drop-overlay">Drop files to upload</div>
@@ -522,14 +693,9 @@ export function ObjectBrowser({ target }: Props) {
 
       {/* Toolbar */}
       <div
+        className="toolbar"
         style={{
-          padding: "10px 16px",
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          flexWrap: "wrap",
-          flexShrink: 0,
           background: token.colorBgContainer,
         }}
       >
@@ -585,18 +751,27 @@ export function ObjectBrowser({ target }: Props) {
             />
           </Tooltip>
           {selectedRowKeys.length > 0 && (
-            <Popconfirm
-              title={`Delete ${selectedRowKeys.length} item(s)?`}
-              onConfirm={deleteSelected}
-              okText="Delete"
-              okButtonProps={{ danger: true }}
-            >
-              <Badge count={selectedRowKeys.length}>
-                <Button danger icon={<DeleteOutlined />}>
-                  Delete
-                </Button>
-              </Badge>
-            </Popconfirm>
+            <>
+              <Button
+                icon={<DownloadOutlined />}
+                loading={downloading}
+                onClick={downloadSelected}
+              >
+                Download
+              </Button>
+              <Popconfirm
+                title={`Delete ${selectedRowKeys.length} item(s)?`}
+                onConfirm={deleteSelected}
+                okText="Delete"
+                okButtonProps={{ danger: true }}
+              >
+                <Badge count={selectedRowKeys.length}>
+                  <Button danger icon={<DeleteOutlined />} loading={deleting}>
+                    Delete
+                  </Button>
+                </Badge>
+              </Popconfirm>
+            </>
           )}
           <Tooltip title="Refresh">
             <Button
@@ -614,19 +789,49 @@ export function ObjectBrowser({ target }: Props) {
       {/* Upload progress */}
       {uploads.length > 0 && (
         <div
+          className="upload-progress-bar"
           style={{
-            padding: "6px 16px",
             background: token.colorFillAlter,
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
           {uploads.map((u) => (
             <div key={u.id} style={{ marginBottom: 4 }}>
-              <Text style={{ fontSize: 12 }}>{u.filename}</Text>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Text style={{ fontSize: 12, flex: 1 }}>{u.filename}</Text>
+                {u.error && (
+                  <Space size={4}>
+                    {u.file && u.key && (
+                      <Tooltip title="Retry">
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<ReloadOutlined />}
+                          onClick={() => {
+                            setUploads((prev) => prev.filter((t) => t.id !== u.id));
+                            doUpload([u.file!]);
+                          }}
+                        />
+                      </Tooltip>
+                    )}
+                    <Tooltip title="Dismiss">
+                      <Button
+                        size="small"
+                        type="text"
+                        icon={<CloseCircleOutlined />}
+                        onClick={() =>
+                          setUploads((prev) => prev.filter((t) => t.id !== u.id))
+                        }
+                      />
+                    </Tooltip>
+                  </Space>
+                )}
+              </div>
               <Progress
                 percent={u.progress}
                 size="small"
                 status={u.error ? "exception" : u.done ? "success" : "active"}
+                format={() => u.error ? <Text type="danger" style={{ fontSize: 11 }}>{u.error}</Text> : `${u.progress}%`}
               />
             </div>
           ))}
@@ -634,103 +839,96 @@ export function ObjectBrowser({ target }: Props) {
       )}
 
       {/* Table */}
-      <div style={{ flex: 1, overflow: "auto", padding: "0 0 0 0" }}>
+      <div className="table-container" style={{ background: token.colorBgContainer }}>
         {loading ? (
-          <div style={{ textAlign: "center", paddingTop: 80 }}>
+          <div className="content-center">
             <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
           </div>
         ) : (
-          <>
-            <Table
-              className="obj-table"
-              rowKey="key"
-              dataSource={items}
-              columns={columns}
-              pagination={false}
-              size="small"
-              rowSelection={{
-                selectedRowKeys,
-                onChange: (keys) => setSelectedRowKeys(keys),
-              }}
-              locale={{
-                emptyText: (
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="No objects"
-                  />
-                ),
-              }}
-              scroll={{ x: "max-content" }}
-            />
-            {(currentPage > 0 || hasNextPage) && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 12,
-                  padding: "12px 16px",
-                  borderTop: `1px solid ${token.colorBorderSecondary}`,
-                }}
-              >
-                <Button
-                  icon={<LeftOutlined />}
-                  size="small"
-                  disabled={currentPage === 0}
-                  onClick={() => {
-                    const p = currentPage - 1;
-                    setCurrentPage(p);
-                    if (isSearchMode) loadSearch(searchText, p);
-                    else load(prefix, p);
-                  }}
-                >
-                  Prev
-                </Button>
-                <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
-                  Page {currentPage + 1}
-                </span>
-                <Button
-                  size="small"
-                  disabled={!hasNextPage}
-                  onClick={() => {
-                    const p = currentPage + 1;
-                    setCurrentPage(p);
-                    if (isSearchMode) loadSearch(searchText, p);
-                    else load(prefix, p);
-                  }}
-                >
-                  Next <RightOutlined />
-                </Button>
-                {!hasNextPage && currentPage * pageSize + items.length >= MAX_TOTAL && (
-                  <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
-                    Limit of {MAX_TOTAL} reached — use prefix search to narrow down
-                  </span>
-                )}
-                <div style={{ marginLeft: 8, borderLeft: `1px solid ${token.colorBorderSecondary}`, paddingLeft: 12 }}>
-                  <Segmented
-                    size="small"
-                    options={[
-                      { label: "10", value: 10 },
-                      { label: "20", value: 20 },
-                      { label: "50", value: 50 },
-                    ]}
-                    value={pageSize}
-                    onChange={(val) => {
-                      const size = val as number;
-                      pageSizeRef.current = size;
-                      setPageSize(size);
-                      setCurrentPage(0);
-                      pageTokensRef.current = [undefined];
-                      if (isSearchMode) loadSearch(searchText, 0);
-                      else load(prefix, 0, size);
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </>
+          <Table
+            className="obj-table"
+            rowKey="key"
+            dataSource={items}
+            columns={columns}
+            pagination={false}
+            size="small"
+            loading={deleting}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys),
+            }}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="No objects"
+                />
+              ),
+            }}
+            scroll={{ x: "max-content" }}
+          />
         )}
       </div>
+
+      {/* Pagination — fixed at bottom, always visible */}
+      {(currentPage > 0 || hasNextPage) && (
+        <div
+          className="pagination-bar"
+          style={{
+            borderTop: `1px solid ${token.colorBorderSecondary}`,
+            background: token.colorBgContainer,
+          }}
+        >
+          <Button
+            icon={<LeftOutlined />}
+            size="small"
+            disabled={currentPage === 0}
+            onClick={() => {
+              const p = currentPage - 1;
+              setCurrentPage(p);
+              if (isSearchMode) loadSearch(searchText, p);
+              else load(prefix, p);
+            }}
+          />
+          <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
+            {currentPage + 1}
+          </span>
+          <Button
+            icon={<RightOutlined />}
+            size="small"
+            disabled={!hasNextPage}
+            onClick={() => {
+              const p = currentPage + 1;
+              setCurrentPage(p);
+              if (isSearchMode) loadSearch(searchText, p);
+              else load(prefix, p);
+            }}
+          />
+          {!hasNextPage && currentPage * pageSize + items.length >= MAX_TOTAL && (
+            <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+              Limit of {MAX_TOTAL} reached — use prefix search to narrow down
+            </span>
+          )}
+          <Select
+            size="small"
+            value={pageSize}
+            onChange={(size) => {
+              pageSizeRef.current = size;
+              setPageSize(size);
+              setCurrentPage(0);
+              pageTokensRef.current = [undefined];
+              if (isSearchMode) loadSearch(searchText, 0);
+              else load(prefix, 0, size);
+            }}
+            options={[
+              { label: "10", value: 10 },
+              { label: "20", value: 20 },
+              { label: "50", value: 50 },
+            ]}
+            style={{ width: 66 }}
+          />
+        </div>
+      )}
 
       {/* Hidden file input */}
       <input
@@ -768,6 +966,28 @@ export function ObjectBrowser({ target }: Props) {
           <Text type="secondary" style={{ fontSize: 12 }}>
             Will be created as: {prefix}{"<name>"}/
           </Text>
+        </Form>
+      </Modal>
+
+      {/* Rename modal */}
+      <Modal
+        title="Rename"
+        open={renameItem !== null}
+        onOk={handleRename}
+        onCancel={() => {
+          setRenameItem(null);
+          renameForm.resetFields();
+        }}
+        okText="Rename"
+      >
+        <Form form={renameForm} layout="vertical">
+          <Form.Item
+            name="name"
+            label="New name"
+            rules={[{ required: true, message: "Enter a file name" }]}
+          >
+            <Input autoFocus />
+          </Form.Item>
         </Form>
       </Modal>
 

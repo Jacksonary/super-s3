@@ -164,4 +164,36 @@ export const api = {
       })
       .then((r) => r.data);
   },
+
+  downloadZip(
+    accountId: number,
+    bucket: string,
+    keys: string[],
+    opts?: { filename?: string; stripPrefix?: string }
+  ): Promise<Blob> {
+    const params: Record<string, string> = {};
+    if (opts?.filename) params.filename = opts.filename;
+    if (opts?.stripPrefix) params.strip_prefix = opts.stripPrefix;
+    return axios
+      .post(
+        `${BASE}/download-zip/${accountId}/${encodeURIComponent(bucket)}`,
+        { keys },
+        { responseType: "blob", params }
+      )
+      .then((r) => r.data);
+  },
+
+  rename(
+    accountId: number,
+    bucket: string,
+    srcKey: string,
+    dstKey: string
+  ): Promise<{ success: boolean; src: string; dst: string }> {
+    return axios
+      .post(`${BASE}/rename/${accountId}/${encodeURIComponent(bucket)}`, {
+        src_key: srcKey,
+        dst_key: dstKey,
+      })
+      .then((r) => r.data);
+  },
 };

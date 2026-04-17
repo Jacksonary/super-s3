@@ -26,7 +26,8 @@ const { Text } = Typography;
 
 interface Props {
   open: boolean;
-  onClose: (reloaded: boolean) => void;
+  onClose: () => void;
+  onChange?: () => void;
 }
 
 const EMPTY: AccountConfig = {
@@ -38,7 +39,7 @@ const EMPTY: AccountConfig = {
   buckets: [],
 };
 
-export function ConfigModal({ open, onClose }: Props) {
+export function ConfigModal({ open, onClose, onChange }: Props) {
   const { token } = theme.useToken();
   const [accounts, setAccounts] = useState<AccountConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,7 +53,7 @@ export function ConfigModal({ open, onClose }: Props) {
       const data = await api.getConfig();
       setAccounts(data);
     } catch {
-      message.error("加载配置失败");
+      message.error("Failed to load config");
     } finally {
       setLoading(false);
     }
@@ -67,10 +68,11 @@ export function ConfigModal({ open, onClose }: Props) {
     try {
       await api.putConfig(list);
       setAccounts(list);
-      message.success("保存成功");
+      onChange?.();
+      message.success("Saved successfully");
       return true;
     } catch {
-      message.error("保存失败");
+      message.error("Failed to save");
       return false;
     } finally {
       setSaving(false);
@@ -125,12 +127,12 @@ export function ConfigModal({ open, onClose }: Props) {
 
   const handleClose = () => {
     cancelEdit();
-    onClose(true);
+    onClose();
   };
 
   return (
     <Modal
-      title="账号管理"
+      title="Account Management"
       open={open}
       onCancel={handleClose}
       footer={null}
@@ -140,50 +142,50 @@ export function ConfigModal({ open, onClose }: Props) {
       {editing !== null ? (
         // ── Edit / Add form ──────────────────────────────────────────────
         <Form form={form} layout="vertical" onFinish={submitEdit}>
-          <Form.Item label="显示名称" name="name">
-            <Input placeholder="留空则自动识别云厂商" />
+          <Form.Item label="Display Name" name="name">
+            <Input placeholder="Auto-detect if left empty" />
           </Form.Item>
           <Form.Item
             label="Access Key"
             name="ak"
-            rules={[{ required: true, message: "请输入 AK" }]}
+            rules={[{ required: true, message: "Please enter AK" }]}
           >
             <Input />
           </Form.Item>
           <Form.Item
             label="Secret Key"
             name="sk"
-            rules={[{ required: true, message: "请输入 SK" }]}
+            rules={[{ required: true, message: "Please enter SK" }]}
           >
             <Input.Password />
           </Form.Item>
           <Form.Item
             label="Endpoint"
             name="endpoint"
-            rules={[{ required: true, message: "请输入 Endpoint" }]}
+            rules={[{ required: true, message: "Please enter Endpoint" }]}
           >
             <Input placeholder="https://obs.cn-east-3.myhuaweicloud.com" />
           </Form.Item>
           <Form.Item
             label="Region"
             name="region"
-            rules={[{ required: true, message: "请输入 Region" }]}
+            rules={[{ required: true, message: "Please enter Region" }]}
           >
             <Input placeholder="cn-east-3" />
           </Form.Item>
           <Form.Item
             label="Buckets"
             name="bucketsRaw"
-            extra="每行一个，留空则列出账号下所有桶"
+            extra="One per line. Leave empty to list all buckets"
           >
             <Input.TextArea rows={3} placeholder={"my-bucket-1\nmy-bucket-2"} />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Space>
               <Button type="primary" htmlType="submit" loading={saving}>
-                保存
+                Save
               </Button>
-              <Button onClick={cancelEdit}>取消</Button>
+              <Button onClick={cancelEdit}>Cancel</Button>
             </Space>
           </Form.Item>
         </Form>
@@ -192,7 +194,7 @@ export function ConfigModal({ open, onClose }: Props) {
         <Spin spinning={loading}>
           <List
             dataSource={accounts}
-            locale={{ emptyText: "暂无账号，点击下方添加" }}
+            locale={{ emptyText: "No accounts yet. Click below to add one." }}
             renderItem={(acct, idx) => (
               <List.Item
                 style={{
@@ -209,10 +211,10 @@ export function ConfigModal({ open, onClose }: Props) {
                   />,
                   <Popconfirm
                     key="del"
-                    title="确认删除该账号？"
+                    title="Delete this account?"
                     onConfirm={() => remove(idx)}
-                    okText="删除"
-                    cancelText="取消"
+                    okText="Delete"
+                    cancelText="Cancel"
                     okButtonProps={{ danger: true }}
                   >
                     <Button
@@ -232,7 +234,7 @@ export function ConfigModal({ open, onClose }: Props) {
                   }
                   title={
                     <Text strong>
-                      {acct.name || acct.endpoint || "未命名账号"}
+                      {acct.name || acct.endpoint || "Unnamed Account"}
                     </Text>
                   }
                   description={
@@ -267,7 +269,7 @@ export function ConfigModal({ open, onClose }: Props) {
             style={{ marginTop: 12 }}
             onClick={openAdd}
           >
-            添加账号
+            Add Account
           </Button>
         </Spin>
       )}
