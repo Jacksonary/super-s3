@@ -49,10 +49,9 @@ cp config.example.yaml config.yaml
 docker run -d \
   --name super-s3 \
   -p 8080:8080 \
-  -v $(pwd)/config.yaml:/config/config.yaml \
-  -e CONFIG_PATH=/config/config.yaml \
+  -v /usr/local/docker-data/super-s3/config.yaml:/config/config.yaml \
   --restart unless-stopped \
-  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.6.0
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.7.0
 ```
 
 访问 <http://localhost:8080> 即可使用。
@@ -100,6 +99,15 @@ docker run -d \
   buckets:
     - my-bos-bucket
 
+# 七牛云 KODO
+- name: "七牛云 KODO"
+  ak: YOUR_ACCESS_KEY
+  sk: YOUR_SECRET_KEY
+  endpoint: "https://s3.cn-east-1.qiniucs.com"
+  region: cn-east-1
+  buckets:
+    - my-qiniu-bucket
+
 # AWS S3（endpoint 留空使用官方地址）
 - name: "AWS S3"
   ak: YOUR_ACCESS_KEY
@@ -133,7 +141,7 @@ docker compose up -d
 `docker-compose.yml` 默认使用本地构建镜像。如需直接使用预构建镜像，将文件中的 `build: .` 替换为：
 
 ```yaml
-image: registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.6.0
+image: registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.7.0
 ```
 
 重新加载配置（修改 config.yaml 后重启即可）：
@@ -153,7 +161,7 @@ docker run -d \
   -v $(pwd)/config.yaml:/config/config.yaml \
   -e CONFIG_PATH=/config/config.yaml \
   --restart unless-stopped \
-  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.6.0
+  registry.cn-shanghai.aliyuncs.com/hhu/super-s3:1.7.0
 ```
 
 ---
