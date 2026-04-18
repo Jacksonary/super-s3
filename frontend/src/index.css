@@ -5,6 +5,11 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #ffffff;
+}
+
+[data-theme="dark"] {
+  background: #141414;
 }
 
 /* Scrollbars — light mode */
