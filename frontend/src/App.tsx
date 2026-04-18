@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout, theme, Typography, Empty, ConfigProvider } from "antd";
 import { Sidebar } from "./components/Sidebar";
 import { ObjectBrowser } from "./components/ObjectBrowser";
@@ -64,6 +64,10 @@ export default function App() {
   const [isDark, setIsDark] = useState(
     () => localStorage.getItem("theme") === "dark"
   );
+
+  useEffect(() => {
+    document.documentElement.style.backgroundColor = isDark ? "#141414" : "#ffffff";
+  }, [isDark]);
 
   const toggleTheme = () => {
     const next = !isDark;
