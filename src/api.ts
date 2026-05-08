@@ -129,12 +129,14 @@ export const api = {
   preview(
     accountId: number,
     bucket: string,
-    key: string
+    key: string,
+    maxBytes?: number
   ): Promise<{ text: string }> {
     return invoke("preview_object", {
       accountIdx: accountId,
       bucket,
       key,
+      maxBytes: maxBytes ?? null,
     });
   },
 

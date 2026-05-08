@@ -118,11 +118,13 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
     return () => { stale = true; };
   }, [open, item, accountId, bucket, refreshKey]);
 
+  const PREVIEW_MAX_BYTES = 512 * 1024;
+
   const loadTextContent = async () => {
     if (!item) return;
     setContentLoading(true);
     try {
-      const { text } = await api.preview(accountId, bucket, item.key);
+      const { text } = await api.preview(accountId, bucket, item.key, PREVIEW_MAX_BYTES);
       setPreviewText(text);
       setEditText(text);
       setContentReady(true);
@@ -248,6 +250,9 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
     }
 
     if (previewType === "text" && previewText !== null) {
+      const fileSize = meta?.content_length ?? item.size ?? 0;
+      const isTruncated = fileSize > PREVIEW_MAX_BYTES;
+
       return (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 6 }}>
@@ -267,6 +272,8 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
               <Button
                 size="small"
                 icon={<EditOutlined />}
+                disabled={isTruncated}
+                title={isTruncated ? "File too large to edit in preview" : undefined}
                 onClick={() => { setEditText(previewText); setEditMode(true); }}
               >
                 Edit
@@ -311,6 +318,11 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
             >
               {previewText}
             </pre>
+          )}
+          {isTruncated && (
+            <Text type="secondary" style={{ fontSize: 11, marginTop: 6, display: "block" }}>
+              Content truncated (showing first 512 KB of {fmtSize(fileSize)})
+            </Text>
           )}
         </div>
       );
@@ -410,13 +422,16 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
                 item.storage_class || "—"
               )}
             </Descriptions.Item>
-            {meta?.metadata && Object.keys(meta.metadata).length > 0 &&
-              Object.entries(meta.metadata).map(([k, v]) => (
-                <Descriptions.Item key={k} label={k}>
-                  <Text style={{ fontSize: 12, wordBreak: "break-all" }}>{v}</Text>
-                </Descriptions.Item>
-              ))
-            }
+            {meta?.metadata && Object.keys(meta.metadata).length > 0 && (
+              <Descriptions.Item label="User Metadata">
+                {Object.entries(meta.metadata).map(([k, v]) => (
+                  <div key={k} style={{ fontSize: 12, lineHeight: 1.8 }}>
+                    <Text type="secondary">{k}: </Text>
+                    <Text style={{ wordBreak: "break-all" }}>{v}</Text>
+                  </div>
+                ))}
+              </Descriptions.Item>
+            )}
           </Descriptions>
         </>
       )}
