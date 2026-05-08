@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Layout, theme, Typography, ConfigProvider } from "antd";
 import { CloudServerOutlined } from "@ant-design/icons";
 import { listen } from "@tauri-apps/api/event";
@@ -34,6 +34,37 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
 
   // Monotonic counter for unique task IDs — shared across bucket switches.
   const uploadTaskCounter = useRef(0);
+
+  // ─── Resizable sidebar ─────────────────────────────────────────────────
+  const [sidebarWidth, setSidebarWidth] = useState(240);
+  const dragging = useRef(false);
+
+  const handleMouseDown = useCallback(() => {
+    dragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      const newWidth = Math.max(180, Math.min(400, e.clientX));
+      setSidebarWidth(newWidth);
+    };
+    const handleMouseUp = () => {
+      if (dragging.current) {
+        dragging.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
 
   useEffect(() => {
     api.getTransferConfig().then(setTransferConfig).catch(() => {});
@@ -79,7 +110,7 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Sider
-        width={240}
+        width={sidebarWidth}
         style={{
           background: "transparent",
           borderRight: `1px solid ${token.colorBorderSecondary}`,
@@ -97,9 +128,21 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
           onThemeToggle={onThemeToggle}
           onTransferConfigChange={setTransferConfig}
         />
+        <div
+          onMouseDown={handleMouseDown}
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            width: 4,
+            height: "100%",
+            cursor: "col-resize",
+            zIndex: 10,
+          }}
+        />
       </Sider>
 
-      <Layout style={{ marginLeft: 240 }}>
+      <Layout style={{ marginLeft: sidebarWidth }}>
         <Content style={{ background: token.colorBgLayout, minHeight: "100vh" }}>
           {selected ? (
             <ObjectBrowser
