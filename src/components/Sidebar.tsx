@@ -76,14 +76,13 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
     selectable: false,
     title: (
       <span style={{
-        fontSize: 10,
+        fontSize: 12,
         fontWeight: 600,
-        letterSpacing: "0.07em",
         display: "flex",
         alignItems: "center",
         gap: 5,
         paddingTop: 2,
-        opacity: 0.45,
+        opacity: 0.65,
       }}>
         <DatabaseOutlined />
         {acct.name}

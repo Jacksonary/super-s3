@@ -167,31 +167,49 @@ pub async fn search_objects(
         &endpoint,
         &bucket,
         &search_prefix,
-        "",
+        "/",
         limit,
         continuation_token.as_deref(),
     )
     .await?;
 
-    let items: Vec<ObjectItem> = resp
-        .contents
+    let mut items: Vec<ObjectItem> = resp
+        .common_prefixes
         .iter()
-        .map(|obj| {
-            let key = obj.key().unwrap_or_default().to_string();
-            ObjectItem {
-                key: key.clone(),
-                name: key,
-                item_type: "file".to_string(),
-                size: obj.size(),
-                last_modified: obj.last_modified().map(|dt| {
-                    dt.fmt(aws_smithy_types::date_time::Format::DateTime)
-                        .unwrap_or_default()
-                }),
-                etag: obj.e_tag().map(|s| s.trim_matches('"').to_string()),
-                storage_class: obj.storage_class().map(|sc| sc.as_str().to_string()),
-            }
+        .filter_map(|cp| {
+            let key = cp.prefix()?.to_string();
+            let name = key.strip_prefix(&prefix).unwrap_or(&key).to_string();
+            Some(ObjectItem {
+                key,
+                name,
+                item_type: "folder".to_string(),
+                size: None,
+                last_modified: None,
+                etag: None,
+                storage_class: None,
+            })
         })
         .collect();
+
+    for obj in &resp.contents {
+        let key = obj.key().unwrap_or_default().to_string();
+        if key == search_prefix {
+            continue;
+        }
+        let name = key.strip_prefix(&prefix).unwrap_or(&key).to_string();
+        items.push(ObjectItem {
+            key,
+            name,
+            item_type: "file".to_string(),
+            size: obj.size(),
+            last_modified: obj.last_modified().map(|dt| {
+                dt.fmt(aws_smithy_types::date_time::Format::DateTime)
+                    .unwrap_or_default()
+            }),
+            etag: obj.e_tag().map(|s| s.trim_matches('"').to_string()),
+            storage_class: obj.storage_class().map(|sc| sc.as_str().to_string()),
+        });
+    }
 
     Ok(SearchResult {
         items,
