@@ -149,24 +149,36 @@ jobs:
             exit 1
           fi
 
-          # Upload assets to Gitee Release (Gitee has a 100MB per-file limit)
-          MAX_SIZE=$((100 * 1024 * 1024))
-          for file in assets/*; do
+          # Upload assets to Gitee Release
+          # Limit to 30MB due to cross-border network instability
+          MAX_SIZE=$((30 * 1024 * 1024))
+
+          # Sort files: Windows installers first, then others
+          FILES=$(ls assets/ 2>/dev/null | sort -t. -k1,1 | awk '
+            /\.(exe|msi|nsis)/ { win[NR]=$0; next }
+            { others[NR]=$0 }
+            END { for(i in win) print win[i]; for(i in others) print others[i] }
+          ')
+
+          for filename in $FILES; do
+            file="assets/${filename}"
             [ -f "$file" ] || continue
-            filename=$(basename "$file")
             filesize=$(stat -c%s "$file")
             if [ "$filesize" -gt "$MAX_SIZE" ]; then
-              echo "Skipping ${filename} ($(( filesize / 1024 / 1024 ))MB exceeds Gitee 100MB limit)"
+              echo "Skipping ${filename} ($(( filesize / 1024 / 1024 ))MB exceeds 30MB limit)"
               continue
             fi
             echo "Uploading to Gitee: ${filename} ($(( filesize / 1024 / 1024 ))MB)"
-            UPLOAD_RESPONSE=$(curl -s --fail --retry 2 --retry-delay 5 \
+            UPLOAD_RESPONSE=$(curl -s -S --retry 2 --retry-delay 5 \
               -X POST \
               "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
-              -H "Content-Type: multipart/form-data" \
               -F "access_token=${GITEE_TOKEN}" \
               -F "file=@${file}")
+            CURL_EXIT=$?
             echo "$UPLOAD_RESPONSE"
+            if [ $CURL_EXIT -ne 0 ]; then
+              echo "Warning: Upload failed for ${filename} (curl exit code: ${CURL_EXIT})"
+            fi
             echo ""
           done
 
