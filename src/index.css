@@ -267,12 +267,11 @@ body {
   overflow: auto;
 }
 
-/* Uppercase column headers with tracking */
+/* Column headers with tracking */
 .obj-table .ant-table-thead .ant-table-cell {
   font-size: 11px !important;
   font-weight: 600 !important;
   letter-spacing: 0.05em !important;
-  text-transform: uppercase !important;
   opacity: 0.45 !important;
 }
 

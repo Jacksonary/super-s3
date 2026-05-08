@@ -79,7 +79,6 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
         fontSize: 10,
         fontWeight: 600,
         letterSpacing: "0.07em",
-        textTransform: "uppercase" as const,
         display: "flex",
         alignItems: "center",
         gap: 5,

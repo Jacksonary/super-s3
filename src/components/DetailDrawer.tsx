@@ -19,6 +19,7 @@ import {
   CopyOutlined,
   EditOutlined,
   FullscreenOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -77,9 +78,12 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
   const [updating, setUpdating]   = useState(false);
 
   const [imgFullscreen, setImgFullscreen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!open || !item) return;
+    let stale = false;
+
     setMeta(null);
     setPreviewUrl(null);
     setPreviewText(null);
@@ -91,27 +95,28 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
     setMetaLoading(true);
     api.meta(accountId, bucket, item.key)
       .then((m) => {
+        if (stale) return null;
         setMeta(m);
         return m;
       })
-      .catch(() => {
-        // head_object failed (e.g. provider incompatibility) — fall back to list info
-        return null;
-      })
+      .catch(() => null)
       .then((m) => {
+        if (stale) return;
         const pt = detectPreviewType(item, m?.content_type);
         if (pt === "image" || pt === "audio" || pt === "video") {
           return api.presign(accountId, bucket, item.key).then(({ url }) => {
-            setPreviewUrl(url);
-            setContentReady(true);
+            if (!stale) {
+              setPreviewUrl(url);
+              setContentReady(true);
+            }
           });
         }
       })
-      .catch(() => {
-        // presign also failed — ignore, preview just won't load
-      })
-      .finally(() => setMetaLoading(false));
-  }, [open, item, accountId, bucket]);
+      .catch(() => {})
+      .finally(() => { if (!stale) setMetaLoading(false); });
+
+    return () => { stale = true; };
+  }, [open, item, accountId, bucket, refreshKey]);
 
   const loadTextContent = async () => {
     if (!item) return;
@@ -316,16 +321,18 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
 
   return (
     <Drawer
-      title={
-        <Text ellipsis style={{ maxWidth: 300, fontSize: 14 }} title={filename}>
-          {filename}
-        </Text>
-      }
+      title={null}
       open={open}
       onClose={onClose}
       width={520}
       extra={
         <Space>
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => setRefreshKey((k) => k + 1)}
+            loading={metaLoading}
+          />
           <Button
             size="small"
             icon={<DownloadOutlined />}
@@ -362,16 +369,9 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
           <Descriptions
             column={1}
             size="small"
-            layout="vertical"
-            labelStyle={{
-              color: token.colorTextSecondary,
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              paddingBottom: 2,
-            }}
-            contentStyle={{ fontSize: 12, paddingBottom: 12 }}
+            bordered
+            labelStyle={{ width: 120, color: token.colorTextSecondary, fontSize: 12, textTransform: "none" }}
+            contentStyle={{ fontSize: 12 }}
           >
             <Descriptions.Item label="Filename">{filename}</Descriptions.Item>
             <Descriptions.Item label="Full Key">
@@ -410,15 +410,13 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
                 item.storage_class || "—"
               )}
             </Descriptions.Item>
-            {meta?.metadata && Object.keys(meta.metadata).length > 0 && (
-              <Descriptions.Item label="User Metadata">
-                {Object.entries(meta.metadata).map(([k, v]) => (
-                  <div key={k} style={{ fontSize: 12 }}>
-                    <Text type="secondary">{k}:</Text> {v}
-                  </div>
-                ))}
-              </Descriptions.Item>
-            )}
+            {meta?.metadata && Object.keys(meta.metadata).length > 0 &&
+              Object.entries(meta.metadata).map(([k, v]) => (
+                <Descriptions.Item key={k} label={k}>
+                  <Text style={{ fontSize: 12, wordBreak: "break-all" }}>{v}</Text>
+                </Descriptions.Item>
+              ))
+            }
           </Descriptions>
         </>
       )}
