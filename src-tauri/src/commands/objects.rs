@@ -193,7 +193,7 @@ pub async fn search_objects(
 
     for obj in &resp.contents {
         let key = obj.key().unwrap_or_default().to_string();
-        if key == search_prefix {
+        if key == search_prefix && key.ends_with('/') {
             continue;
         }
         let name = key.strip_prefix(&prefix).unwrap_or(&key).to_string();
