@@ -14,7 +14,7 @@ const DEFAULT_TRANSFER_CONFIG: TransferConfig = {
   upload_part_concurrency: 4,
 };
 
-const { Sider, Content } = Layout;
+const { Content } = Layout;
 const { Text } = Typography;
 
 interface AppContentProps {
@@ -38,6 +38,8 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
   // ─── Resizable sidebar ─────────────────────────────────────────────────
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const dragging = useRef(false);
+  const siderRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const handleMouseDown = useCallback(() => {
     dragging.current = true;
@@ -49,13 +51,16 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
     const handleMouseMove = (e: MouseEvent) => {
       if (!dragging.current) return;
       const newWidth = Math.max(180, Math.min(400, e.clientX));
-      setSidebarWidth(newWidth);
+      if (siderRef.current) siderRef.current.style.width = `${newWidth}px`;
+      if (contentRef.current) contentRef.current.style.marginLeft = `${newWidth}px`;
     };
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
       if (dragging.current) {
         dragging.current = false;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        const finalWidth = Math.max(180, Math.min(400, e.clientX));
+        setSidebarWidth(finalWidth);
       }
     };
     document.addEventListener("mousemove", handleMouseMove);
@@ -109,9 +114,10 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Sider
-        width={sidebarWidth}
+      <div
+        ref={siderRef}
         style={{
+          width: sidebarWidth,
           background: "transparent",
           borderRight: `1px solid ${token.colorBorderSecondary}`,
           overflow: "hidden",
@@ -119,6 +125,7 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
           position: "fixed",
           left: 0,
           top: 0,
+          zIndex: 1,
         }}
       >
         <Sidebar
@@ -140,9 +147,9 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
             zIndex: 10,
           }}
         />
-      </Sider>
+      </div>
 
-      <Layout style={{ marginLeft: sidebarWidth }}>
+      <div ref={contentRef} style={{ marginLeft: sidebarWidth }}>
         <Content style={{ background: token.colorBgLayout, minHeight: "100vh" }}>
           {selected ? (
             <ObjectBrowser
@@ -167,7 +174,7 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
             </div>
           )}
         </Content>
-      </Layout>
+      </div>
 
       <TransferPanel
         uploads={uploads}

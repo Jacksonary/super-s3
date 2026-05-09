@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";import {
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";import {
   Table,
   Button,
   Space,
@@ -570,7 +570,22 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
 
   // ─── Table columns ─────────────────────────────────────────────────────
 
-  const columns: ColumnsType<ObjectItem> = [
+  const navigateRef = useRef(navigate);
+  const setDrawerItemRef = useRef(setDrawerItem);
+  const handleDownloadRef = useRef(handleDownload);
+  const copyPresignedLinkRef = useRef(copyPresignedLink);
+  const openRenameRef = useRef(openRename);
+  const handleDeleteRowRef = useRef(handleDeleteRow);
+  useLayoutEffect(() => {
+    navigateRef.current = navigate;
+    setDrawerItemRef.current = setDrawerItem;
+    handleDownloadRef.current = handleDownload;
+    copyPresignedLinkRef.current = copyPresignedLink;
+    openRenameRef.current = openRename;
+    handleDeleteRowRef.current = handleDeleteRow;
+  });
+
+  const columns: ColumnsType<ObjectItem> = useMemo(() => [
     {
       title: "Name",
       dataIndex: "name",
@@ -582,7 +597,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             <Space size={6}>
               <FolderOutlined style={{ color: token.colorWarning, fontSize: 16 }} />
               <a
-                onClick={() => navigate(row.key)}
+                onClick={() => navigateRef.current(row.key)}
                 style={{ fontWeight: 500, color: token.colorText }}
               >
                 {name}
@@ -605,14 +620,14 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
                   <span
                     key={i}
                     className="search-dir"
-                    onClick={() => navigate(dirSegments.slice(0, i + 1).join("/") + "/")}
+                    onClick={() => navigateRef.current(dirSegments.slice(0, i + 1).join("/") + "/")}
                   >
                     {seg}/
                   </span>
                 ))}
                 <a
                   className="search-file"
-                  onClick={() => setDrawerItem(row)}
+                  onClick={() => setDrawerItemRef.current(row)}
                   style={{ color: token.colorText }}
                 >
                   {file}
@@ -626,7 +641,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
           <Space size={6}>
             <FileOutlined style={{ color: token.colorTextSecondary, fontSize: 14 }} />
             <a
-              onClick={() => setDrawerItem(row)}
+              onClick={() => setDrawerItemRef.current(row)}
               style={{ color: token.colorText }}
             >
               {name}
@@ -677,7 +692,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
                   size="small"
                   type="text"
                   icon={<DownloadOutlined />}
-                  onClick={() => handleDownload(row.key)}
+                  onClick={() => handleDownloadRef.current(row.key)}
                 />
               </Tooltip>
               <Tooltip title="Copy presigned URL">
@@ -685,7 +700,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
                   size="small"
                   type="text"
                   icon={<LinkOutlined />}
-                  onClick={() => copyPresignedLink(row)}
+                  onClick={() => copyPresignedLinkRef.current(row)}
                 />
               </Tooltip>
             </>
@@ -707,7 +722,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
                 size="small"
                 type="text"
                 icon={<EditOutlined />}
-                onClick={() => openRename(row)}
+                onClick={() => openRenameRef.current(row)}
               />
             </Tooltip>
           )}
@@ -718,7 +733,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
                 ? "All objects inside will be deleted."
                 : undefined
             }
-            onConfirm={() => handleDeleteRow(row)}
+            onConfirm={() => handleDeleteRowRef.current(row)}
             okText="Delete"
             okButtonProps={{ danger: true }}
           >
@@ -734,7 +749,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         </Space>
       ),
     },
-  ];
+  ], [token.colorWarning, token.colorText, token.colorTextSecondary, token.colorTextQuaternary, isSearchMode]);
 
   // ─── Render ────────────────────────────────────────────────────────────
 
