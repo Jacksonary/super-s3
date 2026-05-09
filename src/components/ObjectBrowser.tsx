@@ -915,64 +915,66 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
       </div>
 
       {/* Pagination — fixed at bottom, always visible */}
-      {(currentPage > 0 || hasNextPage) && (
-        <div
-          className="pagination-bar"
-          style={{
-            borderTop: `1px solid ${token.colorBorderSecondary}`,
-            background: token.colorBgContainer,
-          }}
-        >
-          <Button
-            icon={<LeftOutlined />}
-            size="small"
-            disabled={currentPage === 0}
-            onClick={() => {
-              const p = currentPage - 1;
-              setCurrentPage(p);
-              if (isSearchMode) loadSearch(searchText, p);
-              else load(prefix, p);
-            }}
-          />
-          <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
-            {currentPage + 1}
-          </span>
-          <Button
-            icon={<RightOutlined />}
-            size="small"
-            disabled={!hasNextPage}
-            onClick={() => {
-              const p = currentPage + 1;
-              setCurrentPage(p);
-              if (isSearchMode) loadSearch(searchText, p);
-              else load(prefix, p);
-            }}
-          />
-          {!hasNextPage && currentPage * pageSize + items.length >= MAX_TOTAL && (
-            <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
-              Limit of {MAX_TOTAL} reached — use prefix search to narrow down
+      <div
+        className="pagination-bar"
+        style={{
+          borderTop: `1px solid ${token.colorBorderSecondary}`,
+          background: token.colorBgContainer,
+        }}
+      >
+        {(currentPage > 0 || hasNextPage) && (
+          <>
+            <Button
+              icon={<LeftOutlined />}
+              size="small"
+              disabled={currentPage === 0}
+              onClick={() => {
+                const p = currentPage - 1;
+                setCurrentPage(p);
+                if (isSearchMode) loadSearch(searchText, p);
+                else load(prefix, p);
+              }}
+            />
+            <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
+              {currentPage + 1}
             </span>
-          )}
-          <Select
-            size="small"
-            value={pageSize}
-            onChange={(size) => {
-              pageSizeRef.current = size;
-              setPageSize(size);
-              setCurrentPage(0);
-              pageTokensRef.current = [undefined];
-              if (isSearchMode) loadSearch(searchText, 0);
-              else load(prefix, 0, size);
-            }}
-            options={[
-              { label: "10", value: 10 },
-              { label: "20", value: 20 },
-              { label: "50", value: 50 },
-            ]}
-            style={{ width: 66 }}
-          />
-        </div>
-      )}
+            <Button
+              icon={<RightOutlined />}
+              size="small"
+              disabled={!hasNextPage}
+              onClick={() => {
+                const p = currentPage + 1;
+                setCurrentPage(p);
+                if (isSearchMode) loadSearch(searchText, p);
+                else load(prefix, p);
+              }}
+            />
+          </>
+        )}
+        {!hasNextPage && currentPage * pageSize + items.length >= MAX_TOTAL && (
+          <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+            Limit of {MAX_TOTAL} reached — use prefix search to narrow down
+          </span>
+        )}
+        <Select
+          size="small"
+          value={pageSize}
+          onChange={(size) => {
+            pageSizeRef.current = size;
+            setPageSize(size);
+            setCurrentPage(0);
+            pageTokensRef.current = [undefined];
+            if (isSearchMode) loadSearch(searchText, 0);
+            else load(prefix, 0, size);
+          }}
+          options={[
+            { label: "10", value: 10 },
+            { label: "20", value: 20 },
+            { label: "50", value: 50 },
+          ]}
+          style={{ width: 66 }}
+        />
+      </div>
 
       {/* Create folder modal */}
       <Modal
