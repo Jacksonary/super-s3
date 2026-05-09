@@ -937,35 +937,31 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
           background: token.colorBgContainer,
         }}
       >
-        {(currentPage > 0 || hasNextPage) && (
-          <>
-            <Button
-              icon={<LeftOutlined />}
-              size="small"
-              disabled={currentPage === 0}
-              onClick={() => {
-                const p = currentPage - 1;
-                setCurrentPage(p);
-                if (isSearchMode) loadSearch(searchText, p);
-                else load(prefix, p);
-              }}
-            />
-            <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
-              {currentPage + 1}
-            </span>
-            <Button
-              icon={<RightOutlined />}
-              size="small"
-              disabled={!hasNextPage}
-              onClick={() => {
-                const p = currentPage + 1;
-                setCurrentPage(p);
-                if (isSearchMode) loadSearch(searchText, p);
-                else load(prefix, p);
-              }}
-            />
-          </>
-        )}
+        <Button
+          icon={<LeftOutlined />}
+          size="small"
+          disabled={currentPage === 0}
+          onClick={() => {
+            const p = currentPage - 1;
+            setCurrentPage(p);
+            if (isSearchMode) loadSearch(searchText, p);
+            else load(prefix, p);
+          }}
+        />
+        <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
+          {currentPage + 1}
+        </span>
+        <Button
+          icon={<RightOutlined />}
+          size="small"
+          disabled={!hasNextPage}
+          onClick={() => {
+            const p = currentPage + 1;
+            setCurrentPage(p);
+            if (isSearchMode) loadSearch(searchText, p);
+            else load(prefix, p);
+          }}
+        />
         {!hasNextPage && currentPage * pageSize + items.length >= MAX_TOTAL && (
           <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
             Limit of {MAX_TOTAL} reached — use prefix search to narrow down
