@@ -28,8 +28,17 @@ jobs:
       - name: Set version from tag
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "Setting version to: ${VERSION}"
+          RAW="${GITHUB_REF_NAME#v}"
+
+          # MSI/WiX requires version in X.Y.Z.W format (pure numeric, dot-separated).
+          # Convert e.g. 1.9.5-alpha.1 → 1.9.5.1 (strip text, keep number as 4th segment).
+          if [[ "$RAW" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-[a-zA-Z]+\.?([0-9]+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          else
+            VERSION="$RAW"
+          fi
+
+          echo "Tag: ${GITHUB_REF_NAME}  →  version: ${VERSION}"
 
           # package.json
           jq --arg v "$VERSION" '.version = $v' package.json > tmp.json && mv tmp.json package.json
