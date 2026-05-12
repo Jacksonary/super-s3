@@ -227,4 +227,84 @@ export const api = {
   checkUpdate(): Promise<{ latestVersion: string; releaseUrl: string }> {
     return invoke("check_update");
   },
+
+  // ─── Bucket info ────────────────────────────────────────────────────────────
+
+  getBucketLocation(accountId: number, bucket: string): Promise<{ location: string }> {
+    return invoke("get_bucket_location", { accountIdx: accountId, bucket });
+  },
+
+  getBucketAcl(
+    accountId: number,
+    bucket: string
+  ): Promise<{ owner: string; grants: { grantee: string; permission: string }[] }> {
+    return invoke("get_bucket_acl", { accountIdx: accountId, bucket });
+  },
+
+  getBucketVersioning(
+    accountId: number,
+    bucket: string
+  ): Promise<{ status: string | null; mfa_delete: string | null }> {
+    return invoke("get_bucket_versioning", { accountIdx: accountId, bucket });
+  },
+
+  getBucketEncryption(
+    accountId: number,
+    bucket: string
+  ): Promise<{ rules: { algorithm: string; kms_key_id: string | null }[] }> {
+    return invoke("get_bucket_encryption", { accountIdx: accountId, bucket });
+  },
+
+  getBucketLifecycle(
+    accountId: number,
+    bucket: string
+  ): Promise<{
+    rules: {
+      id: string | null;
+      status: string;
+      prefix: string | null;
+      transitions: { days: number | null; storage_class: string | null }[];
+      expiration: { days: number | null; expired_object_delete_marker: boolean } | null;
+      noncurrent_transitions: { days: number | null; storage_class: string | null }[];
+      noncurrent_expiration_days: number | null;
+    }[];
+  }> {
+    return invoke("get_bucket_lifecycle", { accountIdx: accountId, bucket });
+  },
+
+  getBucketCors(
+    accountId: number,
+    bucket: string
+  ): Promise<{
+    rules: {
+      allowed_origins: string[];
+      allowed_methods: string[];
+      allowed_headers: string[];
+      expose_headers: string[];
+      max_age_seconds: number | null;
+    }[];
+  }> {
+    return invoke("get_bucket_cors", { accountIdx: accountId, bucket });
+  },
+
+  getBucketTags(
+    accountId: number,
+    bucket: string
+  ): Promise<{ tags: { key: string; value: string }[] }> {
+    return invoke("get_bucket_tags", { accountIdx: accountId, bucket });
+  },
+
+  getBucketPolicy(
+    accountId: number,
+    bucket: string
+  ): Promise<{ policy: string | null }> {
+    return invoke("get_bucket_policy", { accountIdx: accountId, bucket });
+  },
+
+  getBucketLogging(
+    accountId: number,
+    bucket: string
+  ): Promise<{ target_bucket: string | null; target_prefix: string | null }> {
+    return invoke("get_bucket_logging", { accountIdx: accountId, bucket });
+  },
 };

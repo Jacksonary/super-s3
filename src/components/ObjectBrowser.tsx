@@ -38,6 +38,7 @@ import {
   LeftOutlined,
   RightOutlined,
   InboxOutlined,
+  InfoCircleOutlined,
 } from "@ant-design/icons";
 import { save, open, ask } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -48,6 +49,7 @@ import { api } from "../api";
 import type { ObjectItem, SelectedBucket, UploadEntry, TransferConfig, UploadTask, DownloadTask } from "../types";
 import { fmtSize, fmtDate } from "../utils";
 import { DetailDrawer } from "./DetailDrawer";
+import { BucketDrawer } from "./BucketDrawer";
 
 const { Text } = Typography;
 
@@ -96,6 +98,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
 
   // detail drawer
   const [drawerItem, setDrawerItem] = useState<ObjectItem | null>(null);
+  // bucket info drawer (mutually exclusive with detail drawer)
+  const [bucketDrawerOpen, setBucketDrawerOpen] = useState(false);
 
   // rename modal
   const [renameItem, setRenameItem] = useState<ObjectItem | null>(null);
@@ -571,14 +575,18 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
   // ─── Table columns ─────────────────────────────────────────────────────
 
   const navigateRef = useRef(navigate);
-  const setDrawerItemRef = useRef(setDrawerItem);
+  const openDetailDrawer = useCallback((item: ObjectItem) => {
+    setBucketDrawerOpen(false);
+    setDrawerItem(item);
+  }, []);
+  const setDrawerItemRef = useRef(openDetailDrawer);
   const handleDownloadRef = useRef(handleDownload);
   const copyPresignedLinkRef = useRef(copyPresignedLink);
   const openRenameRef = useRef(openRename);
   const handleDeleteRowRef = useRef(handleDeleteRow);
   useLayoutEffect(() => {
     navigateRef.current = navigate;
-    setDrawerItemRef.current = setDrawerItem;
+    setDrawerItemRef.current = openDetailDrawer;
     handleDownloadRef.current = handleDownload;
     copyPresignedLinkRef.current = copyPresignedLink;
     openRenameRef.current = openRename;
@@ -891,6 +899,15 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
               }}
             />
           </Tooltip>
+          <Tooltip title="Bucket info">
+            <Button
+              icon={<InfoCircleOutlined />}
+              onClick={() => {
+                setDrawerItem(null);
+                setBucketDrawerOpen(true);
+              }}
+            />
+          </Tooltip>
         </Space>
       </div>
 
@@ -1040,6 +1057,13 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         target={target}
         item={drawerItem}
         onClose={() => setDrawerItem(null)}
+      />
+
+      {/* Bucket info drawer */}
+      <BucketDrawer
+        open={bucketDrawerOpen}
+        target={target}
+        onClose={() => setBucketDrawerOpen(false)}
       />
     </div>
   );

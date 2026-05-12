@@ -15,6 +15,16 @@ pub fn run() {
             commands::accounts::list_accounts,
             // Buckets
             commands::buckets::list_buckets,
+            // Bucket info
+            commands::bucket_info::get_bucket_location,
+            commands::bucket_info::get_bucket_acl,
+            commands::bucket_info::get_bucket_versioning,
+            commands::bucket_info::get_bucket_encryption,
+            commands::bucket_info::get_bucket_lifecycle,
+            commands::bucket_info::get_bucket_cors,
+            commands::bucket_info::get_bucket_tags,
+            commands::bucket_info::get_bucket_policy,
+            commands::bucket_info::get_bucket_logging,
             // Objects
             commands::objects::list_objects,
             commands::objects::search_objects,
