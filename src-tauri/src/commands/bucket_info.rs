@@ -1,11 +1,27 @@
 use crate::s3client;
 
+/// Check if an S3 API error indicates the feature is simply not configured
+/// (as opposed to the API being unsupported or a real error).
 fn is_not_configured(err: &str) -> bool {
     err.contains("NoSuch")
         || err.contains("NotImplemented")
         || err.contains("MethodNotAllowed")
-        || err.contains("AccessDenied")
         || err.contains("ServerSideEncryptionConfigurationNotFound")
+}
+
+/// Wrap an S3 API error into a successful JSON response with an `_error` field.
+/// - "Not configured" errors → return default data, no _error
+/// - Other errors → return default data + `_error` with the actual message for debugging
+fn soft_err(e: impl std::fmt::Display, default: serde_json::Value) -> Result<serde_json::Value, String> {
+    let err_str = format!("{e}");
+    if is_not_configured(&err_str) {
+        return Ok(default);
+    }
+    let mut val = default;
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert("_error".to_string(), serde_json::json!(err_str));
+    }
+    Ok(val)
 }
 
 #[tauri::command]
@@ -29,14 +45,7 @@ pub async fn get_bucket_location(
             let location = if location.is_empty() { "us-east-1".to_string() } else { location };
             Ok(serde_json::json!({ "location": location }))
         }
-        Err(e) => {
-            let err_str = format!("{e}");
-            if is_not_configured(&err_str) {
-                Ok(serde_json::json!({ "location": null }))
-            } else {
-                Err(format!("Failed to get bucket location: {e}"))
-            }
-        }
+        Err(e) => soft_err(e, serde_json::json!({ "location": null }))
     }
 }
 
@@ -86,14 +95,7 @@ pub async fn get_bucket_acl(
 
             Ok(serde_json::json!({ "owner": owner, "grants": grants }))
         }
-        Err(e) => {
-            let err_str = format!("{e}");
-            if is_not_configured(&err_str) {
-                Ok(serde_json::json!({ "owner": null, "grants": [] }))
-            } else {
-                Err(format!("Failed to get bucket ACL: {e}"))
-            }
-        }
+        Err(e) => soft_err(e, serde_json::json!({ "owner": null, "grants": [] }))
     }
 }
 
@@ -107,13 +109,16 @@ pub async fn get_bucket_versioning(
         .get_bucket_versioning()
         .bucket(&bucket)
         .send()
-        .await
-        .map_err(|e| format!("Failed to get bucket versioning: {e}"))?;
+        .await;
 
-    let status = resp.status().map(|s| s.as_str().to_string());
-    let mfa_delete = resp.mfa_delete().map(|m| m.as_str().to_string());
-
-    Ok(serde_json::json!({ "status": status, "mfa_delete": mfa_delete }))
+    match resp {
+        Ok(output) => {
+            let status = output.status().map(|s| s.as_str().to_string());
+            let mfa_delete = output.mfa_delete().map(|m| m.as_str().to_string());
+            Ok(serde_json::json!({ "status": status, "mfa_delete": mfa_delete }))
+        }
+        Err(e) => soft_err(e, serde_json::json!({ "status": null, "mfa_delete": null }))
+    }
 }
 
 #[tauri::command]
@@ -153,14 +158,7 @@ pub async fn get_bucket_encryption(
                 .unwrap_or_default();
             Ok(serde_json::json!({ "rules": rules }))
         }
-        Err(e) => {
-            let err_str = format!("{e}");
-            if is_not_configured(&err_str) {
-                Ok(serde_json::json!({ "rules": [] }))
-            } else {
-                Err(format!("Failed to get bucket encryption: {e}"))
-            }
-        }
+        Err(e) => soft_err(e, serde_json::json!({ "rules": [] }))
     }
 }
 
@@ -238,14 +236,7 @@ pub async fn get_bucket_lifecycle(
                 .collect();
             Ok(serde_json::json!({ "rules": rules }))
         }
-        Err(e) => {
-            let err_str = format!("{e}");
-            if is_not_configured(&err_str) {
-                Ok(serde_json::json!({ "rules": [] }))
-            } else {
-                Err(format!("Failed to get bucket lifecycle: {e}"))
-            }
-        }
+        Err(e) => soft_err(e, serde_json::json!({ "rules": [] }))
     }
 }
 
@@ -278,14 +269,7 @@ pub async fn get_bucket_cors(
                 .collect();
             Ok(serde_json::json!({ "rules": rules }))
         }
-        Err(e) => {
-            let err_str = format!("{e}");
-            if is_not_configured(&err_str) {
-                Ok(serde_json::json!({ "rules": [] }))
-            } else {
-                Err(format!("Failed to get bucket CORS: {e}"))
-            }
-        }
+        Err(e) => soft_err(e, serde_json::json!({ "rules": [] }))
     }
 }
 
@@ -315,14 +299,7 @@ pub async fn get_bucket_tags(
                 .collect();
             Ok(serde_json::json!({ "tags": tags }))
         }
-        Err(e) => {
-            let err_str = format!("{e}");
-            if is_not_configured(&err_str) {
-                Ok(serde_json::json!({ "tags": [] }))
-            } else {
-                Err(format!("Failed to get bucket tags: {e}"))
-            }
-        }
+        Err(e) => soft_err(e, serde_json::json!({ "tags": [] }))
     }
 }
 
@@ -343,14 +320,7 @@ pub async fn get_bucket_policy(
             let policy = output.policy().unwrap_or_default().to_string();
             Ok(serde_json::json!({ "policy": if policy.is_empty() { None::<String> } else { Some(policy) } }))
         }
-        Err(e) => {
-            let err_str = format!("{e}");
-            if is_not_configured(&err_str) {
-                Ok(serde_json::json!({ "policy": null }))
-            } else {
-                Err(format!("Failed to get bucket policy: {e}"))
-            }
-        }
+        Err(e) => soft_err(e, serde_json::json!({ "policy": null }))
     }
 }
 
@@ -383,13 +353,6 @@ pub async fn get_bucket_logging(
                 "target_prefix": target_prefix,
             }))
         }
-        Err(e) => {
-            let err_str = format!("{e}");
-            if is_not_configured(&err_str) {
-                Ok(serde_json::json!({ "target_bucket": null, "target_prefix": null }))
-            } else {
-                Err(format!("Failed to get bucket logging: {e}"))
-            }
-        }
+        Err(e) => soft_err(e, serde_json::json!({ "target_bucket": null, "target_prefix": null }))
     }
 }

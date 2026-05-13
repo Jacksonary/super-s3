@@ -110,7 +110,11 @@ export function BucketDrawer({ open, target, onClose }: Props) {
     ) => {
       setter({ loading: true, error: null, data: null });
       apiFn()
-        .then((data) => { if (generationRef.current === gen) setter({ loading: false, error: null, data }); })
+        .then((data) => {
+          if (generationRef.current !== gen) return;
+          const softErr = (data as Record<string, unknown>)?._error as string | undefined;
+          setter({ loading: false, error: softErr ?? null, data });
+        })
         .catch((err) => { if (generationRef.current === gen) setter({ loading: false, error: String(err), data: null }); });
     };
 
