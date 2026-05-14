@@ -101,6 +101,23 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
   // bucket info drawer (mutually exclusive with detail drawer)
   const [bucketDrawerOpen, setBucketDrawerOpen] = useState(false);
 
+  // context menu
+  const [ctxMenu, setCtxMenu] = useState<{ item: ObjectItem; x: number; y: number } | null>(null);
+
+  // shortcuts help modal
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const searchInputRef = useRef<{ focus: () => void }>(null);
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [ctxMenu]);
+
   // rename modal
   const [renameItem, setRenameItem] = useState<ObjectItem | null>(null);
   const [renameForm] = Form.useForm();
@@ -593,6 +610,68 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
     handleDeleteRowRef.current = handleDeleteRow;
   });
 
+  // ─── Global keyboard shortcuts ──────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const inInput = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
+      const ctrl = e.ctrlKey || e.metaKey;
+
+      // ? — open shortcuts reference (only when not in input)
+      if (e.key === "?" && !inInput) {
+        e.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
+
+      if (e.key === "Escape") {
+        if (ctxMenu) setCtxMenu(null);
+        return;
+      }
+
+      // Ctrl-based shortcuts — skip if in input (except Ctrl+F)
+      if (ctrl) {
+        switch (e.key.toLowerCase()) {
+          case "f":
+            e.preventDefault();
+            searchInputRef.current?.focus();
+            return;
+          case "u":
+            if (inInput) return;
+            e.preventDefault();
+            handleUploadButton();
+            return;
+          case "r":
+            if (inInput) return;
+            e.preventDefault();
+            setCurrentPage(0);
+            pageTokensRef.current = [undefined];
+            load(prefix, 0);
+            return;
+        }
+      }
+
+      // Non-ctrl shortcuts — skip if in input
+      if (inInput) return;
+      switch (e.key) {
+        case "n":
+          setFolderModal(true);
+          break;
+        case "Delete":
+          if (selectedRowKeys.length > 0) deleteSelected();
+          break;
+        case "Backspace":
+          if (prefix) {
+            const parent = prefix.replace(/[^/]+\/$/, "");
+            navigate(parent);
+          }
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const columns: ColumnsType<ObjectItem> = useMemo(() => [
     {
       title: "Name",
@@ -823,6 +902,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         />
 
         <Input.Search
+          ref={searchInputRef as any}
           placeholder="Search by prefix…"
           allowClear
           value={searchText}
@@ -854,11 +934,13 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             }}
             trigger={["click"]}
           >
-            <Button icon={<UploadOutlined />}>
-              Upload <DownOutlined style={{ fontSize: 10 }} />
-            </Button>
+            <Tooltip title="Ctrl+U">
+              <Button icon={<UploadOutlined />}>
+                Upload <DownOutlined style={{ fontSize: 10 }} />
+              </Button>
+            </Tooltip>
           </Dropdown>
-          <Tooltip title="New folder">
+          <Tooltip title="New folder (N)">
             <Button
               icon={<FolderAddOutlined />}
               onClick={() => setFolderModal(true)}
@@ -889,7 +971,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
               </Popconfirm>
             </>
           )}
-          <Tooltip title="Refresh">
+          <Tooltip title="Refresh (Ctrl+R)">
             <Button
               icon={<ReloadOutlined spin={loading} />}
               onClick={() => {
@@ -908,11 +990,17 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
               }}
             />
           </Tooltip>
+          <Tooltip title="Keyboard shortcuts (?)">
+            <Button
+              icon={<span style={{ fontSize: 14, fontWeight: 600 }}>?</span>}
+              onClick={() => setShortcutsOpen(true)}
+            />
+          </Tooltip>
         </Space>
       </div>
 
       {/* Table */}
-      <div className="table-container" style={{ background: token.colorBgContainer }}>
+      <div className="table-container" style={{ background: token.colorBgContainer }} onContextMenu={() => setCtxMenu(null)}>
         {loading ? (
           <div className="content-center">
             <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
@@ -942,6 +1030,13 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
               ),
             }}
             scroll={{ x: "max-content" }}
+            onRow={(record) => ({
+              onContextMenu: (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!deleting) setCtxMenu({ item: record, x: e.clientX, y: e.clientY });
+              },
+            })}
           />
         )}
       </div>
@@ -1065,6 +1160,99 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         target={target}
         onClose={() => setBucketDrawerOpen(false)}
       />
+
+      {/* Keyboard shortcuts reference */}
+      <Modal
+        title="Keyboard Shortcuts"
+        open={shortcutsOpen}
+        onCancel={() => setShortcutsOpen(false)}
+        footer={null}
+        width={420}
+      >
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 16px", fontSize: 13 }}>
+          <Tag>Ctrl+F</Tag><span>Focus search</span>
+          <Tag>Ctrl+U</Tag><span>Upload files</span>
+          <Tag>N</Tag><span>New folder</span>
+          <Tag>Ctrl+R</Tag><span>Refresh</span>
+          <Tag>Delete</Tag><span>Delete selected</span>
+          <Tag>Backspace</Tag><span>Go to parent folder</span>
+          <Tag>?</Tag><span>Show this reference</span>
+          <Tag>Esc</Tag><span>Close dialog / menu</span>
+        </div>
+      </Modal>
+
+      {/* Right-click context menu */}
+      <Dropdown
+        open={ctxMenu !== null}
+        onOpenChange={(open) => { if (!open) setCtxMenu(null); }}
+        menu={{
+          items: ctxMenu ? [
+            ...(ctxMenu.item.type === "file"
+              ? [
+                  { key: "open", label: "Open", icon: <FileOutlined /> },
+                  { type: "divider" as const },
+                  { key: "download", label: "Download", icon: <DownloadOutlined /> },
+                  { key: "presign", label: "Copy presigned URL", icon: <LinkOutlined /> },
+                ]
+              : [
+                  { key: "open-folder", label: "Open", icon: <FolderOutlined /> },
+                  { type: "divider" as const },
+                ]),
+            { key: "copy-key", label: "Copy key", icon: <CopyOutlined /> },
+            ...(ctxMenu.item.type === "file"
+              ? [{ key: "rename", label: "Rename", icon: <EditOutlined /> }]
+              : []),
+            { type: "divider" as const },
+            { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true },
+          ] : [],
+          onClick: async ({ key }) => {
+            if (!ctxMenu) return;
+            const row = ctxMenu.item;
+            setCtxMenu(null);
+            switch (key) {
+              case "open":
+                openDetailDrawer(row);
+                break;
+              case "open-folder":
+                navigate(row.key);
+                break;
+              case "download":
+                handleDownloadRef.current(row.key);
+                break;
+              case "presign":
+                copyPresignedLinkRef.current(row);
+                break;
+              case "copy-key":
+                await writeText(row.key);
+                message.success("Key copied");
+                break;
+              case "rename":
+                openRenameRef.current(row);
+                break;
+              case "delete":
+                Modal.confirm({
+                  title: `Delete "${row.name}"?`,
+                  content: row.type === "folder" ? "All objects inside will be deleted." : undefined,
+                  okText: "Delete",
+                  okButtonProps: { danger: true },
+                  onOk: () => handleDeleteRowRef.current(row),
+                });
+                break;
+            }
+          },
+        }}
+        trigger={[]}
+      >
+        <div
+          style={{
+            position: "fixed",
+            left: ctxMenu?.x ?? 0,
+            top: ctxMenu?.y ?? 0,
+            width: 0,
+            height: 0,
+          }}
+        />
+      </Dropdown>
     </div>
   );
 }

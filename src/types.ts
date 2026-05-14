@@ -7,6 +7,7 @@ export interface Account {
 }
 
 export interface AccountConfig {
+  id?: string;
   name?: string;
   ak: string;
   sk: string;
