@@ -23,7 +23,6 @@ pub fn run() {
             commands::bucket_info::get_bucket_lifecycle,
             commands::bucket_info::get_bucket_cors,
             commands::bucket_info::get_bucket_tags,
-            commands::bucket_info::get_bucket_policy,
             commands::bucket_info::get_bucket_logging,
             // Objects
             commands::objects::list_objects,

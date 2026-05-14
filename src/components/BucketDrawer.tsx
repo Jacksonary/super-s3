@@ -82,7 +82,6 @@ type CorsData = {
   }[];
 };
 type TagsData = { tags: { key: string; value: string }[] };
-type PolicyData = { policy: string | null };
 type LoggingData = { target_bucket: string | null; target_prefix: string | null };
 
 export function BucketDrawer({ open, target, onClose }: Props) {
@@ -96,7 +95,6 @@ export function BucketDrawer({ open, target, onClose }: Props) {
   const [lifecycle, setLifecycle] = useState<SectionState<LifecycleData>>(initSection);
   const [cors, setCors] = useState<SectionState<CorsData>>(initSection);
   const [tags, setTags] = useState<SectionState<TagsData>>(initSection);
-  const [policy, setPolicy] = useState<SectionState<PolicyData>>(initSection);
   const [logging, setLogging] = useState<SectionState<LoggingData>>(initSection);
 
   const generationRef = useRef(0);
@@ -125,7 +123,6 @@ export function BucketDrawer({ open, target, onClose }: Props) {
     load(() => api.getBucketLifecycle(accountId, bucket), setLifecycle);
     load(() => api.getBucketCors(accountId, bucket), setCors);
     load(() => api.getBucketTags(accountId, bucket), setTags);
-    load(() => api.getBucketPolicy(accountId, bucket), setPolicy);
     load(() => api.getBucketLogging(accountId, bucket), setLogging);
   };
 
@@ -346,44 +343,11 @@ export function BucketDrawer({ open, target, onClose }: Props) {
     );
   };
 
-  const renderPolicy = () => {
-    if (policy.loading) return renderLoading();
-    if (policy.error) return renderError(policy.error);
-    if (!policy.data?.policy)
-      return <Text type="secondary" style={{ fontSize: 12 }}>No bucket policy</Text>;
-
-    let formatted: string;
-    try {
-      formatted = JSON.stringify(JSON.parse(policy.data.policy), null, 2);
-    } catch {
-      formatted = policy.data.policy;
-    }
-
-    return (
-      <pre
-        style={{
-          fontSize: 11,
-          lineHeight: 1.5,
-          padding: 12,
-          borderRadius: 6,
-          background: token.colorFillAlter,
-          overflow: "auto",
-          maxHeight: 300,
-          margin: 0,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-all",
-        }}
-      >
-        {formatted}
-      </pre>
-    );
-  };
-
   // ─── Drawer ──────────────────────────────────────────────────────────────
 
   const anyLoading =
     location.loading || acl.loading || versioning.loading || encryption.loading ||
-    lifecycle.loading || cors.loading || tags.loading || policy.loading || logging.loading;
+    lifecycle.loading || cors.loading || tags.loading || logging.loading;
 
   return (
     <Drawer
@@ -439,12 +403,6 @@ export function BucketDrawer({ open, target, onClose }: Props) {
               )}
             </Space>
             <div style={{ marginTop: 8 }}>{renderCors()}</div>
-          </section>
-
-          {/* Policy */}
-          <section>
-            {sectionLabel("Bucket Policy")}
-            <div style={{ marginTop: 8 }}>{renderPolicy()}</div>
           </section>
         </div>
     </Drawer>
