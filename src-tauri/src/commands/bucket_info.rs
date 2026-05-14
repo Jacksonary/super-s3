@@ -304,27 +304,6 @@ pub async fn get_bucket_tags(
 }
 
 #[tauri::command]
-pub async fn get_bucket_policy(
-    account_idx: usize,
-    bucket: String,
-) -> Result<serde_json::Value, String> {
-    let client = s3client::get_client(account_idx)?;
-    let resp = client
-        .get_bucket_policy()
-        .bucket(&bucket)
-        .send()
-        .await;
-
-    match resp {
-        Ok(output) => {
-            let policy = output.policy().unwrap_or_default().to_string();
-            Ok(serde_json::json!({ "policy": if policy.is_empty() { None::<String> } else { Some(policy) } }))
-        }
-        Err(e) => soft_err(e, serde_json::json!({ "policy": null }))
-    }
-}
-
-#[tauri::command]
 pub async fn get_bucket_logging(
     account_idx: usize,
     bucket: String,

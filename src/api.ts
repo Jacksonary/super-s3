@@ -294,13 +294,6 @@ export const api = {
     return invoke("get_bucket_tags", { accountIdx: accountId, bucket });
   },
 
-  getBucketPolicy(
-    accountId: number,
-    bucket: string
-  ): Promise<{ policy: string | null }> {
-    return invoke("get_bucket_policy", { accountIdx: accountId, bucket });
-  },
-
   getBucketLogging(
     accountId: number,
     bucket: string
