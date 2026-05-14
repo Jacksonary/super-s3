@@ -6,6 +6,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
+// ─── Config file lock (serializes load_config / save_config) ─────────────────
+
+static CONFIG_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+fn config_lock() -> &'static Mutex<()> {
+    CONFIG_LOCK.get_or_init(|| Mutex::new(()))
+}
+
 // ─── Keyring helpers ─────────────────────────────────────────────────────────
 
 const KEYRING_SERVICE: &str = "super-s3";
@@ -182,6 +189,7 @@ fn write_yaml(accounts: &[AccountConfig], keyring_ok: &[bool]) -> Result<(), Str
 
 /// Load config from YAML + keyring. Handles migration from plaintext.
 pub fn load_config() -> Result<Vec<AccountConfig>, String> {
+    let _guard = config_lock().lock().unwrap();
     let mut accounts = read_yaml()?;
     let mut needs_save = false;
     let mut keyring_ok = vec![false; accounts.len()];
@@ -216,6 +224,7 @@ pub fn load_config() -> Result<Vec<AccountConfig>, String> {
 /// Save config: store credentials in keyring, write YAML without secrets.
 /// If keyring is unavailable for an account, its credentials stay in YAML as fallback.
 pub fn save_config(accounts: &[AccountConfig]) -> Result<(), String> {
+    let _guard = config_lock().lock().unwrap();
     let mut accounts = accounts.to_vec();
     let mut keyring_ok = vec![false; accounts.len()];
     for (i, acct) in accounts.iter_mut().enumerate() {

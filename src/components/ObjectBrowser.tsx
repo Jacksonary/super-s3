@@ -17,6 +17,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
   Badge,
   Select,
   Dropdown,
+  Menu,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
@@ -1182,77 +1183,78 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
       </Modal>
 
       {/* Right-click context menu */}
-      <Dropdown
-        open={ctxMenu !== null}
-        onOpenChange={(open) => { if (!open) setCtxMenu(null); }}
-        menu={{
-          items: ctxMenu ? [
-            ...(ctxMenu.item.type === "file"
-              ? [
-                  { key: "open", label: "Open", icon: <FileOutlined /> },
-                  { type: "divider" as const },
-                  { key: "download", label: "Download", icon: <DownloadOutlined /> },
-                  { key: "presign", label: "Copy presigned URL", icon: <LinkOutlined /> },
-                ]
-              : [
-                  { key: "open-folder", label: "Open", icon: <FolderOutlined /> },
-                  { type: "divider" as const },
-                ]),
-            { key: "copy-key", label: "Copy key", icon: <CopyOutlined /> },
-            ...(ctxMenu.item.type === "file"
-              ? [{ key: "rename", label: "Rename", icon: <EditOutlined /> }]
-              : []),
-            { type: "divider" as const },
-            { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true },
-          ] : [],
-          onClick: async ({ key }) => {
-            if (!ctxMenu) return;
-            const row = ctxMenu.item;
-            setCtxMenu(null);
-            switch (key) {
-              case "open":
-                openDetailDrawer(row);
-                break;
-              case "open-folder":
-                navigate(row.key);
-                break;
-              case "download":
-                handleDownloadRef.current(row.key);
-                break;
-              case "presign":
-                copyPresignedLinkRef.current(row);
-                break;
-              case "copy-key":
-                await writeText(row.key);
-                message.success("Key copied");
-                break;
-              case "rename":
-                openRenameRef.current(row);
-                break;
-              case "delete":
-                Modal.confirm({
-                  title: `Delete "${row.name}"?`,
-                  content: row.type === "folder" ? "All objects inside will be deleted." : undefined,
-                  okText: "Delete",
-                  okButtonProps: { danger: true },
-                  onOk: () => handleDeleteRowRef.current(row),
-                });
-                break;
-            }
-          },
-        }}
-        trigger={[]}
-      >
+      {ctxMenu && (
         <div
-          style={{
-            position: "fixed",
-            left: ctxMenu?.x ?? 0,
-            top: ctxMenu?.y ?? 0,
-            width: 0,
-            height: 0,
-          }}
-        />
-      </Dropdown>
+          style={{ position: "fixed", inset: 0, zIndex: 1050 }}
+          onClick={() => setCtxMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
+        >
+          <Menu
+            style={{
+              position: "fixed",
+              left: ctxMenu.x,
+              top: ctxMenu.y,
+              zIndex: 1051,
+              borderRadius: 8,
+              boxShadow: token.boxShadowSecondary,
+              minWidth: 180,
+            }}
+            items={[
+              ...(ctxMenu.item.type === "file"
+                ? [
+                    { key: "open", label: "Open", icon: <FileOutlined /> },
+                    { type: "divider" as const },
+                    { key: "download", label: "Download", icon: <DownloadOutlined /> },
+                    { key: "presign", label: "Copy presigned URL", icon: <LinkOutlined /> },
+                  ]
+                : [
+                    { key: "open-folder", label: "Open", icon: <FolderOutlined /> },
+                    { type: "divider" as const },
+                  ]),
+              { key: "copy-key", label: "Copy key", icon: <CopyOutlined /> },
+              ...(ctxMenu.item.type === "file"
+                ? [{ key: "rename", label: "Rename", icon: <EditOutlined /> }]
+                : []),
+              { type: "divider" as const },
+              { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true },
+            ]}
+            onClick={async ({ key }) => {
+              const row = ctxMenu.item;
+              setCtxMenu(null);
+              switch (key) {
+                case "open":
+                  openDetailDrawer(row);
+                  break;
+                case "open-folder":
+                  navigate(row.key);
+                  break;
+                case "download":
+                  handleDownloadRef.current(row.key);
+                  break;
+                case "presign":
+                  copyPresignedLinkRef.current(row);
+                  break;
+                case "copy-key":
+                  await writeText(row.key);
+                  message.success("Key copied");
+                  break;
+                case "rename":
+                  openRenameRef.current(row);
+                  break;
+                case "delete":
+                  Modal.confirm({
+                    title: `Delete "${row.name}"?`,
+                    content: row.type === "folder" ? "All objects inside will be deleted." : undefined,
+                    okText: "Delete",
+                    okButtonProps: { danger: true },
+                    onOk: () => handleDeleteRowRef.current(row),
+                  });
+                  break;
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
