@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Drawer,
   Descriptions,
@@ -99,7 +99,7 @@ export function BucketDrawer({ open, target, onClose }: Props) {
 
   const generationRef = useRef(0);
 
-  const fetchAll = () => {
+  const fetchAll = useCallback(() => {
     const gen = ++generationRef.current;
 
     const load = <T,>(
@@ -124,13 +124,12 @@ export function BucketDrawer({ open, target, onClose }: Props) {
     load(() => api.getBucketCors(accountId, bucket), setCors);
     load(() => api.getBucketTags(accountId, bucket), setTags);
     load(() => api.getBucketLogging(accountId, bucket), setLogging);
-  };
+  }, [accountId, bucket]);
 
   useEffect(() => {
     if (open) fetchAll();
     return () => { generationRef.current++; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, accountId, bucket]);
+  }, [open, fetchAll]);
 
   // ─── Section renderers ───────────────────────────────────────────────────
 
