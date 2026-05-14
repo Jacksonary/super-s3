@@ -39,7 +39,8 @@
       "nsis": {
         "languages": ["English", "SimpChinese"],
         "displayLanguageSelector": true,
-        "installMode": "both"
+        "installMode": "both",
+        "template": "nsis/installer.nsi"
       }
     },
     "linux": {
