@@ -6,6 +6,37 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
+// ─── Keyring helpers ─────────────────────────────────────────────────────────
+
+const KEYRING_SERVICE: &str = "super-s3";
+
+fn kr_entry(key: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYRING_SERVICE, key).map_err(|e| format!("keyring: {e}"))
+}
+
+fn keyring_store(uuid: &str, ak: &str, sk: &str) -> Result<(), String> {
+    kr_entry(&format!("{uuid}:ak"))?.set_password(ak).map_err(|e| format!("keyring store: {e}"))?;
+    kr_entry(&format!("{uuid}:sk"))?.set_password(sk).map_err(|e| format!("keyring store: {e}"))?;
+    Ok(())
+}
+
+fn keyring_load(uuid: &str) -> Result<(String, String), String> {
+    let ak = kr_entry(&format!("{uuid}:ak"))?.get_password().map_err(|e| format!("keyring load: {e}"))?;
+    let sk = kr_entry(&format!("{uuid}:sk"))?.get_password().map_err(|e| format!("keyring load: {e}"))?;
+    Ok((ak, sk))
+}
+
+pub fn keyring_delete(uuid: &str) {
+    if let Ok(e) = kr_entry(&format!("{uuid}:ak")) { let _ = e.delete_credential(); }
+    if let Ok(e) = kr_entry(&format!("{uuid}:sk")) { let _ = e.delete_credential(); }
+}
+
+fn ensure_id(account: &mut AccountConfig) {
+    if account.id.is_none() {
+        account.id = Some(uuid::Uuid::new_v4().to_string());
+    }
+}
+
 // ─── Client cache ────────────────────────────────────────────────────────────
 //
 // Each unique (endpoint, ak, region) combination gets one Client that lives for
@@ -89,8 +120,8 @@ pub fn config_path() -> PathBuf {
     base.join("super-s3").join("config.yaml")
 }
 
-/// Load config from YAML. Returns empty vec if file doesn't exist (first run).
-pub fn load_config() -> Result<Vec<AccountConfig>, String> {
+/// Read raw YAML into Vec<AccountConfig> without keyring enrichment.
+fn read_yaml() -> Result<Vec<AccountConfig>, String> {
     let path = config_path();
     if !path.exists() {
         return Ok(vec![]);
@@ -100,7 +131,6 @@ pub fn load_config() -> Result<Vec<AccountConfig>, String> {
     if content.trim().is_empty() {
         return Ok(vec![]);
     }
-    // The YAML could be a list or a single mapping
     let value: serde_yaml::Value =
         serde_yaml::from_str(&content).map_err(|e| format!("Failed to parse config: {e}"))?;
     match value {
@@ -116,17 +146,86 @@ pub fn load_config() -> Result<Vec<AccountConfig>, String> {
     }
 }
 
-/// Save config to YAML.
-pub fn save_config(accounts: &[AccountConfig]) -> Result<(), String> {
+/// Read existing account IDs from YAML without triggering migration.
+pub fn read_yaml_ids() -> Vec<String> {
+    read_yaml()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|a| a.id.clone())
+        .collect()
+}
+
+/// Write Vec<AccountConfig> to YAML.
+/// Credentials are stripped only for accounts where `keyring_ok[i]` is true.
+fn write_yaml(accounts: &[AccountConfig], keyring_ok: &[bool]) -> Result<(), String> {
     let path = config_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create config dir: {e}"))?;
     }
+    let safe: Vec<AccountConfig> = accounts
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            if keyring_ok.get(i).copied().unwrap_or(false) {
+                AccountConfig { ak: String::new(), sk: String::new(), ..a.clone() }
+            } else {
+                a.clone()
+            }
+        })
+        .collect();
     let yaml =
-        serde_yaml::to_string(accounts).map_err(|e| format!("Failed to serialize config: {e}"))?;
+        serde_yaml::to_string(&safe).map_err(|e| format!("Failed to serialize config: {e}"))?;
     std::fs::write(&path, yaml).map_err(|e| format!("Failed to write config: {e}"))?;
     Ok(())
+}
+
+/// Load config from YAML + keyring. Handles migration from plaintext.
+pub fn load_config() -> Result<Vec<AccountConfig>, String> {
+    let mut accounts = read_yaml()?;
+    let mut needs_save = false;
+    let mut keyring_ok = vec![false; accounts.len()];
+
+    for (i, acct) in accounts.iter_mut().enumerate() {
+        if acct.id.is_none() {
+            ensure_id(acct);
+            needs_save = true;
+        }
+        let uuid = acct.id.as_ref().unwrap();
+
+        if !acct.ak.is_empty() && !acct.sk.is_empty() {
+            // Plaintext credentials in YAML → migrate to keyring
+            if keyring_store(uuid, &acct.ak, &acct.sk).is_ok() {
+                keyring_ok[i] = true;
+                needs_save = true;
+            }
+            // ak/sk stay in memory regardless for this session
+        } else if let Ok((ak, sk)) = keyring_load(uuid) {
+            acct.ak = ak;
+            acct.sk = sk;
+        }
+    }
+
+    if needs_save {
+        write_yaml(&accounts, &keyring_ok)?;
+    }
+
+    Ok(accounts)
+}
+
+/// Save config: store credentials in keyring, write YAML without secrets.
+/// If keyring is unavailable for an account, its credentials stay in YAML as fallback.
+pub fn save_config(accounts: &[AccountConfig]) -> Result<(), String> {
+    let mut accounts = accounts.to_vec();
+    let mut keyring_ok = vec![false; accounts.len()];
+    for (i, acct) in accounts.iter_mut().enumerate() {
+        ensure_id(acct);
+        let uuid = acct.id.as_ref().unwrap();
+        if !acct.ak.is_empty() && !acct.sk.is_empty() {
+            keyring_ok[i] = keyring_store(uuid, &acct.ak, &acct.sk).is_ok();
+        }
+    }
+    write_yaml(&accounts, &keyring_ok)
 }
 
 /// Check if the endpoint is Qiniu Kodo (needs V1 list fallback).

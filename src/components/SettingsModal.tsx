@@ -104,6 +104,7 @@ function AccountSection({ onAccountsChange }: { onAccountsChange: () => void }) 
   const submit = async () => {
     const v = await form.validateFields();
     const acct: AccountConfig = {
+      id: editing !== -1 ? accounts[editing!].id : undefined,
       name: v.name || undefined,
       ak: v.ak,
       sk: v.sk,

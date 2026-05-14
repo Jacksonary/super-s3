@@ -31,11 +31,17 @@ impl Default for TransferConfig {
 }
 
 /// YAML config entry — one S3-compatible account.
+/// After migration, ak/sk are stored in OS keyring (keyed by id);
+/// the YAML only holds the id and non-sensitive fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountConfig {
     #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ak: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sk: String,
     #[serde(default)]
     pub endpoint: String,
