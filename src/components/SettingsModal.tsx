@@ -33,7 +33,7 @@ type Section = "accounts" | "general";
 
 export type SettingsAction =
   | { type: "add" }
-  | { type: "edit"; accountId: string }
+  | { type: "edit"; accountIndex: number }
   | null;
 
 interface Props {
@@ -57,7 +57,7 @@ const EMPTY_ACCOUNT: AccountConfig = {
   buckets: [],
 };
 
-function AccountSection({ onAccountsChange, initialAction }: { onAccountsChange: () => void; initialAction?: SettingsAction }) {
+function AccountSection({ onAccountsChange, onClose, initialAction }: { onAccountsChange: () => void; onClose: () => void; initialAction?: SettingsAction }) {
   const { token } = theme.useToken();
   const [accounts, setAccounts] = useState<AccountConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -86,8 +86,7 @@ function AccountSection({ onAccountsChange, initialAction }: { onAccountsChange:
     if (initialAction.type === "add") {
       openAdd();
     } else if (initialAction.type === "edit") {
-      const idx = accounts.findIndex((a) => a.id === initialAction.accountId);
-      if (idx >= 0) openEdit(idx);
+      if (initialAction.accountIndex < accounts.length) openEdit(initialAction.accountIndex);
     }
   }, [initialAction, accounts.length]);
 
@@ -135,7 +134,10 @@ function AccountSection({ onAccountsChange, initialAction }: { onAccountsChange:
     };
     const next = [...accounts];
     if (editing === -1) next.push(acct); else next[editing!] = acct;
-    if (await save(next)) cancel();
+    if (await save(next)) {
+      cancel();
+      if (initialAction) onClose();
+    }
   };
 
   if (editing !== null) {
@@ -417,7 +419,7 @@ export function SettingsModal({
         {/* Right content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
           {section === "accounts" ? (
-            <AccountSection onAccountsChange={onAccountsChange} initialAction={initialAction} />
+            <AccountSection onAccountsChange={onAccountsChange} onClose={onClose} initialAction={initialAction} />
           ) : (
             <GeneralSection
               isDark={isDark}

@@ -47,7 +47,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsAction, setSettingsAction] = useState<SettingsAction>(null);
-  const [acctMenu, setAcctMenu] = useState<{ id: string; name: string; x: number; y: number } | null>(null);
+  const [acctMenu, setAcctMenu] = useState<{ idx: number; name: string; x: number; y: number } | null>(null);
   const { state: updateState, setState: setUpdateState, fallback } = useUpdateCheck(__APP_VERSION__);
 
   const updatingRef = useRef(false);
@@ -109,7 +109,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
     }
   };
 
-  const deleteAccount = (id: string, name: string) => {
+  const deleteAccount = (idx: number, name: string) => {
     Modal.confirm({
       title: `Delete "${name}"?`,
       content: "This account and its stored credentials will be removed.",
@@ -118,7 +118,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
       onOk: async () => {
         try {
           const configs = await api.getConfig();
-          await api.putConfig(configs.filter((a) => a.id !== id));
+          await api.putConfig(configs.filter((_, i) => i !== idx));
           loadAccounts();
         } catch {
           message.error("Failed to delete account");
@@ -148,7 +148,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setAcctMenu({ id: String(acct.id), name: acct.name, x: e.clientX, y: e.clientY });
+          setAcctMenu({ idx: acct.id, name: acct.name, x: e.clientX, y: e.clientY });
         }}
       >
         <DatabaseOutlined />
@@ -426,13 +426,13 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
               { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true },
             ]}
             onClick={({ key }) => {
-              const { id, name } = acctMenu;
+              const { idx, name } = acctMenu;
               setAcctMenu(null);
               if (key === "edit") {
-                setSettingsAction({ type: "edit", accountId: id });
+                setSettingsAction({ type: "edit", accountIndex: idx });
                 setSettingsOpen(true);
               } else if (key === "delete") {
-                deleteAccount(id, name);
+                deleteAccount(idx, name);
               }
             }}
           />

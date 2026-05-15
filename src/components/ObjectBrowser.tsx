@@ -1143,7 +1143,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         }}
         okText="Create"
       >
-        <Form form={folderForm} layout="vertical">
+        <Form form={folderForm} layout="vertical" onFinish={handleCreateFolder}>
           <Form.Item
             name="name"
             label="Folder name"
