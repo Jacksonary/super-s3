@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Modal,
   Form,
@@ -31,6 +31,11 @@ const { Text } = Typography;
 
 type Section = "accounts" | "general";
 
+export type SettingsAction =
+  | { type: "add" }
+  | { type: "edit"; accountId: string }
+  | null;
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -38,6 +43,7 @@ interface Props {
   onTransferConfigChange: (cfg: TransferConfig) => void;
   isDark: boolean;
   onThemeToggle: () => void;
+  initialAction?: SettingsAction;
 }
 
 // ─── Account section ──────────────────────────────────────────────────────────
@@ -51,7 +57,7 @@ const EMPTY_ACCOUNT: AccountConfig = {
   buckets: [],
 };
 
-function AccountSection({ onAccountsChange }: { onAccountsChange: () => void }) {
+function AccountSection({ onAccountsChange, initialAction }: { onAccountsChange: () => void; initialAction?: SettingsAction }) {
   const { token } = theme.useToken();
   const [accounts, setAccounts] = useState<AccountConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -71,6 +77,19 @@ function AccountSection({ onAccountsChange }: { onAccountsChange: () => void }) 
   };
 
   useEffect(() => { load(); }, []);
+
+  const actionHandled = useRef(false);
+  useEffect(() => { actionHandled.current = false; }, [initialAction]);
+  useEffect(() => {
+    if (!initialAction || accounts.length === 0 || actionHandled.current) return;
+    actionHandled.current = true;
+    if (initialAction.type === "add") {
+      openAdd();
+    } else if (initialAction.type === "edit") {
+      const idx = accounts.findIndex((a) => a.id === initialAction.accountId);
+      if (idx >= 0) openEdit(idx);
+    }
+  }, [initialAction, accounts.length]);
 
   const save = async (list: AccountConfig[]) => {
     setSaving(true);
@@ -352,6 +371,7 @@ export function SettingsModal({
   onTransferConfigChange,
   isDark,
   onThemeToggle,
+  initialAction,
 }: Props) {
   const { token } = theme.useToken();
   const [section, setSection] = useState<Section>("accounts");
@@ -397,7 +417,7 @@ export function SettingsModal({
         {/* Right content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
           {section === "accounts" ? (
-            <AccountSection onAccountsChange={onAccountsChange} />
+            <AccountSection onAccountsChange={onAccountsChange} initialAction={initialAction} />
           ) : (
             <GeneralSection
               isDark={isDark}
