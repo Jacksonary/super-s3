@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Tree,
   Typography,
@@ -7,6 +7,7 @@ import {
   Tooltip,
   theme,
   Space,
+  Progress,
 } from "antd";
 import type { DataNode } from "antd/es/tree";
 import {
@@ -18,9 +19,10 @@ import {
   GithubOutlined,
 } from "@ant-design/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
 import type { Account, SelectedBucket, TransferConfig } from "../types";
-import { useUpdateCheck } from "../useUpdateCheck";
+import { useUpdateCheck, type UpdateState } from "../useUpdateCheck";
 import { SettingsModal } from "./SettingsModal";
 
 const { Text } = Typography;
@@ -39,7 +41,40 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
   const [loading, setLoading] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const updateInfo = useUpdateCheck(__APP_VERSION__);
+  const { state: updateState, setState: setUpdateState, fallback } = useUpdateCheck(__APP_VERSION__);
+
+  const updatingRef = useRef(false);
+  const updateRef = useRef(updateState.status === "available" ? updateState.update : null);
+  if (updateState.status === "available") updateRef.current = updateState.update;
+
+  const handleUpdate = async () => {
+    if (updateState.status !== "available" || updatingRef.current) return;
+    updatingRef.current = true;
+    const update = updateRef.current!;
+    let total = 0;
+    let downloaded = 0;
+    try {
+      setUpdateState({ status: "downloading", progress: 0 });
+      await update.downloadAndInstall((e) => {
+        if (e.event === "Started" && e.data.contentLength) {
+          total = e.data.contentLength;
+        } else if (e.event === "Progress") {
+          downloaded += e.data.chunkLength;
+          if (total > 0) setUpdateState({ status: "downloading", progress: Math.round((downloaded / total) * 100) });
+        }
+      });
+      setUpdateState({ status: "ready" });
+    } catch (err) {
+      updatingRef.current = false;
+      setUpdateState({ status: "error", message: String(err) });
+    }
+  };
+
+  const retryCheck = () => {
+    updatingRef.current = false;
+    sessionStorage.removeItem("super-s3-update-check");
+    setUpdateState({ status: "idle" });
+  };
 
   const loadAccounts = async () => {
     setLoading(true);
@@ -184,20 +219,70 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
 
       {/* ── Footer ── */}
       <div className="sidebar-footer">
-        {updateInfo ? (
-          <Tooltip title={`v${updateInfo.latestVersion} available — click to open release`}>
+        {updateState.status === "available" ? (
+          <Tooltip title={`v${updateState.version} available — click to update`}>
             <a
-              onClick={() => openUrl(updateInfo.releaseUrl)}
-              onKeyDown={(e) => e.key === "Enter" && openUrl(updateInfo.releaseUrl)}
+              onClick={handleUpdate}
+              onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
               className="update-badge"
-              role="link"
+              role="button"
               tabIndex={0}
-              aria-label={`Update available: v${__APP_VERSION__} → v${updateInfo.latestVersion}, click to view release`}
               style={{ cursor: "pointer", textDecoration: "none" }}
             >
               <span className="update-dot" />
               <Text style={{ fontSize: 11, color: token.colorWarningText }}>
-                v{__APP_VERSION__} → v{updateInfo.latestVersion}
+                v{__APP_VERSION__} → v{updateState.version}
+              </Text>
+            </a>
+          </Tooltip>
+        ) : updateState.status === "downloading" ? (
+          <div style={{ width: "100%" }}>
+            <Text style={{ fontSize: 11, color: token.colorWarningText }}>
+              Downloading... {updateState.progress}%
+            </Text>
+            <Progress percent={updateState.progress} size="small" showInfo={false} strokeColor={token.colorWarning} />
+          </div>
+        ) : updateState.status === "ready" ? (
+          <a
+            onClick={() => relaunch()}
+            onKeyDown={(e) => e.key === "Enter" && relaunch()}
+            className="update-badge"
+            role="button"
+            tabIndex={0}
+            style={{ cursor: "pointer", textDecoration: "none" }}
+          >
+            <span className="update-dot" />
+            <Text style={{ fontSize: 11, color: token.colorSuccessText }}>
+              Update ready — restart now
+            </Text>
+          </a>
+        ) : updateState.status === "error" ? (
+          <Tooltip title={updateState.message}>
+            <a
+              onClick={retryCheck}
+              onKeyDown={(e) => e.key === "Enter" && retryCheck()}
+              role="button"
+              tabIndex={0}
+              style={{ cursor: "pointer", textDecoration: "none" }}
+            >
+              <Text style={{ fontSize: 11, color: token.colorErrorText }}>
+                Update failed — retry
+              </Text>
+            </a>
+          </Tooltip>
+        ) : fallback ? (
+          <Tooltip title={`v${fallback.latestVersion} available — click to open release`}>
+            <a
+              onClick={() => openUrl(fallback.releaseUrl)}
+              onKeyDown={(e) => e.key === "Enter" && openUrl(fallback.releaseUrl)}
+              className="update-badge"
+              role="link"
+              tabIndex={0}
+              style={{ cursor: "pointer", textDecoration: "none" }}
+            >
+              <span className="update-dot" />
+              <Text style={{ fontSize: 11, color: token.colorWarningText }}>
+                v{__APP_VERSION__} → v{fallback.latestVersion}
               </Text>
             </a>
           </Tooltip>
