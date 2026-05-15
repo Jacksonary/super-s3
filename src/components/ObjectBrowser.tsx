@@ -672,14 +672,26 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         }
       }
 
+      // Delete — works even when checkbox is focused (not a text input)
+      if (e.key === "Delete" && selectedRowKeys.length > 0) {
+        const isTextInput = tag === "TEXTAREA" || (tag === "INPUT" && (e.target as HTMLInputElement).type === "text");
+        if (!isTextInput) {
+          e.preventDefault();
+          Modal.confirm({
+            title: `Delete ${selectedRowKeys.length} item(s)?`,
+            okText: "Delete",
+            okButtonProps: { danger: true },
+            onOk: () => deleteSelected(),
+          });
+        }
+        return;
+      }
+
       // Non-ctrl shortcuts — skip if in input
       if (inInput) return;
       switch (e.key) {
         case "n":
           setFolderModal(true);
-          break;
-        case "Delete":
-          if (selectedRowKeys.length > 0) deleteSelected();
           break;
         case "Backspace":
           if (prefix) {
