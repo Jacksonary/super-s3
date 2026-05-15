@@ -113,7 +113,13 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
   };
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
+    <Layout
+      style={{ minHeight: "100vh" }}
+      onContextMenu={(e) => {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag !== "INPUT" && tag !== "TEXTAREA") e.preventDefault();
+      }}
+    >
       <div
         ref={siderRef}
         style={{

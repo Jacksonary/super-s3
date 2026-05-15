@@ -25,6 +25,7 @@ urlencoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+futures = "0.3.32"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
