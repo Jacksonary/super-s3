@@ -1142,6 +1142,9 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
           folderForm.resetFields();
         }}
         okText="Create"
+        afterOpenChange={(open) => {
+          if (open) folderForm.focusField("name");
+        }}
       >
         <Form form={folderForm} layout="vertical" onFinish={handleCreateFolder}>
           <Form.Item
@@ -1149,7 +1152,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             label="Folder name"
             rules={[{ required: true, message: "Enter a folder name" }]}
           >
-            <Input placeholder="my-folder" autoFocus />
+            <Input placeholder="my-folder" />
           </Form.Item>
           <Text type="secondary" style={{ fontSize: 12 }}>
             Will be created as: {prefix}{"<name>"}/
