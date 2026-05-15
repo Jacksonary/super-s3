@@ -8,6 +8,8 @@ import {
   theme,
   Space,
   Progress,
+  Menu,
+  Modal,
 } from "antd";
 import type { DataNode } from "antd/es/tree";
 import {
@@ -17,13 +19,16 @@ import {
   SettingOutlined,
   CloudServerOutlined,
   GithubOutlined,
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
 } from "@ant-design/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
 import type { Account, SelectedBucket, TransferConfig } from "../types";
 import { useUpdateCheck, type UpdateState } from "../useUpdateCheck";
-import { SettingsModal } from "./SettingsModal";
+import { SettingsModal, type SettingsAction } from "./SettingsModal";
 
 const { Text } = Typography;
 
@@ -41,6 +46,8 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
   const [loading, setLoading] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsAction, setSettingsAction] = useState<SettingsAction>(null);
+  const [acctMenu, setAcctMenu] = useState<{ id: string; name: string; x: number; y: number } | null>(null);
   const { state: updateState, setState: setUpdateState, fallback } = useUpdateCheck(__APP_VERSION__);
 
   const updatingRef = useRef(false);
@@ -102,6 +109,24 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
     }
   };
 
+  const deleteAccount = (id: string, name: string) => {
+    Modal.confirm({
+      title: `Delete "${name}"?`,
+      content: "This account and its stored credentials will be removed.",
+      okText: "Delete",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const configs = await api.getConfig();
+          await api.putConfig(configs.filter((a) => a.id !== id));
+          loadAccounts();
+        } catch {
+          message.error("Failed to delete account");
+        }
+      },
+    });
+  };
+
   useEffect(() => {
     loadAccounts();
   }, []);
@@ -110,15 +135,22 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
     key: `account::${acct.id}`,
     selectable: false,
     title: (
-      <span style={{
-        fontSize: 12,
-        fontWeight: 600,
-        display: "flex",
-        alignItems: "center",
-        gap: 5,
-        paddingTop: 2,
-        opacity: 0.65,
-      }}>
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          paddingTop: 2,
+          opacity: 0.65,
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setAcctMenu({ id: String(acct.id), name: acct.name, x: e.clientX, y: e.clientY });
+        }}
+      >
         <DatabaseOutlined />
         {acct.name}
         {status === "error" && (
@@ -165,8 +197,34 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
     }),
   }));
 
+  treeData.push({
+    key: "add-account",
+    selectable: true,
+    isLeaf: true,
+    title: (
+      <span style={{
+        fontSize: 12,
+        fontWeight: 600,
+        display: "flex",
+        alignItems: "center",
+        gap: 5,
+        paddingTop: 2,
+        opacity: 0.45,
+        cursor: "pointer",
+      }}>
+        <PlusOutlined />
+        Add account
+      </span>
+    ),
+  });
+
   const handleSelect = (keys: React.Key[]) => {
     const key = keys[0] as string;
+    if (key === "add-account") {
+      setSettingsAction({ type: "add" });
+      setSettingsOpen(true);
+      return;
+    }
     if (!key?.startsWith("bucket::")) return;
     const parts = key.split("::");
     const accountId = parseInt(parts[1], 10);
@@ -334,12 +392,52 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
 
       <SettingsModal
         open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => { setSettingsOpen(false); setSettingsAction(null); }}
         onAccountsChange={loadAccounts}
         onTransferConfigChange={onTransferConfigChange}
         isDark={isDark}
         onThemeToggle={onThemeToggle}
+        initialAction={settingsAction}
       />
+
+      {/* Account right-click context menu */}
+      {acctMenu && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 1050 }}
+          onClick={() => setAcctMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setAcctMenu(null); }}
+          onKeyDown={(e) => { if (e.key === "Escape") setAcctMenu(null); }}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+        >
+          <Menu
+            style={{
+              position: "fixed",
+              left: acctMenu.x,
+              top: acctMenu.y,
+              zIndex: 1051,
+              borderRadius: 8,
+              boxShadow: token.boxShadowSecondary,
+              minWidth: 140,
+            }}
+            items={[
+              { key: "edit", label: "Edit", icon: <EditOutlined /> },
+              { type: "divider" },
+              { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true },
+            ]}
+            onClick={({ key }) => {
+              const { id, name } = acctMenu;
+              setAcctMenu(null);
+              if (key === "edit") {
+                setSettingsAction({ type: "edit", accountId: id });
+                setSettingsOpen(true);
+              } else if (key === "delete") {
+                deleteAccount(id, name);
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
