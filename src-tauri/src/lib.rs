@@ -63,6 +63,10 @@ pub fn run() {
             commands::metadata::object_meta,
             commands::metadata::preview_object,
             commands::metadata::update_text,
+            // History
+            commands::history::get_history,
+            commands::history::append_history_entry,
+            commands::history::clear_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,4 +1,4 @@
-use crate::types::{AccountConfig, TransferConfig};
+use crate::types::{AccountConfig, HistoryEntry, TransferConfig};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::{BehaviorVersion, Region, SharedCredentialsProvider};
 use aws_smithy_types::checksum_config::{RequestChecksumCalculation, ResponseChecksumValidation};
@@ -271,6 +271,64 @@ pub fn save_transfer_config(cfg: &TransferConfig) -> Result<(), String> {
         .map_err(|e| format!("Failed to serialize transfer config: {e}"))?;
     std::fs::write(&path, json)
         .map_err(|e| format!("Failed to write transfer config: {e}"))?;
+    Ok(())
+}
+
+// ─── Transfer history ────────────────────────────────────────────────────────
+
+const HISTORY_MAX: usize = 500;
+
+fn history_path() -> PathBuf {
+    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+    base.join("super-s3").join("history.json")
+}
+
+pub fn load_history() -> Vec<HistoryEntry> {
+    let path = history_path();
+    if !path.exists() {
+        return vec![];
+    }
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+static HISTORY_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+fn history_lock() -> &'static Mutex<()> {
+    HISTORY_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+pub fn append_history(new_entries: Vec<HistoryEntry>) -> Result<(), String> {
+    if new_entries.is_empty() { return Ok(()); }
+    let _guard = history_lock().lock().unwrap();
+    let mut entries = load_history();
+    entries.extend(new_entries);
+    if entries.len() > HISTORY_MAX {
+        entries.drain(..entries.len() - HISTORY_MAX);
+    }
+    let path = history_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create history dir: {e}"))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let json = serde_json::to_string(&entries)
+        .map_err(|e| format!("Failed to serialize history: {e}"))?;
+    std::fs::write(&tmp, &json)
+        .map_err(|e| format!("Failed to write history: {e}"))?;
+    std::fs::rename(&tmp, &path)
+        .map_err(|e| format!("Failed to rename history: {e}"))?;
+    Ok(())
+}
+
+pub fn clear_history() -> Result<(), String> {
+    let _guard = history_lock().lock().unwrap();
+    let path = history_path();
+    if path.exists() {
+        std::fs::remove_file(&path)
+            .map_err(|e| format!("Failed to clear history: {e}"))?;
+    }
     Ok(())
 }
 

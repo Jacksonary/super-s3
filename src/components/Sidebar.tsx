@@ -37,7 +37,7 @@ interface Props {
 
 export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferConfigChange }: Props) {
   const { token } = theme.useToken();
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accounts, setAccounts] = useState<{ account: Account; status: "ok" | "error" }[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -81,19 +81,19 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
     try {
       const data = await api.accounts();
       const resolved = await Promise.all(
-        data.map(async (acct) => {
-          if (acct.buckets.length > 0) return acct;
+        data.map(async (acct): Promise<{ account: Account; status: "ok" | "error" }> => {
+          if (acct.buckets.length > 0) return { account: acct, status: "ok" };
           try {
             const { buckets } = await api.buckets(acct.id);
-            return { ...acct, buckets };
+            return { account: { ...acct, buckets }, status: "ok" };
           } catch {
-            return acct;
+            return { account: acct, status: "error" };
           }
         })
       );
       setAccounts(resolved);
       if (resolved.length > 0) {
-        setExpandedKeys([`account::${resolved[0].id}`]);
+        setExpandedKeys([`account::${resolved[0].account.id}`]);
       }
     } catch {
       message.error("Failed to load accounts");
@@ -106,7 +106,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
     loadAccounts();
   }, []);
 
-  const treeData: DataNode[] = accounts.map((acct) => ({
+  const treeData: DataNode[] = accounts.map(({ account: acct, status }) => ({
     key: `account::${acct.id}`,
     selectable: false,
     title: (
@@ -121,6 +121,14 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
       }}>
         <DatabaseOutlined />
         {acct.name}
+        {status === "error" && (
+          <Tooltip title="Connection failed">
+            <span style={{
+              width: 6, height: 6, borderRadius: "50%",
+              background: token.colorError, display: "inline-block", marginLeft: 2,
+            }} />
+          </Tooltip>
+        )}
       </span>
     ),
     children: acct.buckets.map((b) => {

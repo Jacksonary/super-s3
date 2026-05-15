@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod bucket_info;
 pub mod buckets;
+pub mod history;
 pub mod config;
 pub mod metadata;
 pub mod objects;

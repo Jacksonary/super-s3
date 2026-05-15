@@ -91,3 +91,16 @@ export interface UploadEntry {
   local_path: string;
   relative_path: string;
 }
+
+export interface HistoryEntry {
+  type: string;
+  filename: string;
+  key: string;
+  bucket: string;
+  account_name: string;
+  size: number | null;
+  status: string;
+  error: string | null;
+  extra: string | null;
+  timestamp: number;
+}
