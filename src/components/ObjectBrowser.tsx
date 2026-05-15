@@ -47,7 +47,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { DragDropEvent } from "@tauri-apps/api/webview";
 import { api } from "../api";
-import type { ObjectItem, SelectedBucket, UploadEntry, TransferConfig, UploadTask, DownloadTask } from "../types";
+import type { ObjectItem, SelectedBucket, UploadEntry, TransferConfig, UploadTask, DownloadTask, HistoryEntry } from "../types";
 import { fmtSize, fmtDate } from "../utils";
 import { DetailDrawer } from "./DetailDrawer";
 import { BucketDrawer } from "./BucketDrawer";
@@ -552,6 +552,29 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
       } else {
         message.success(`Downloaded ${result.downloaded} file(s)`);
       }
+      const errorMap = new Map<string, string>();
+      for (const err of result.errors) {
+        const idx = err.indexOf(": ");
+        if (idx >= 0) errorMap.set(err.slice(0, idx), err.slice(idx + 2));
+      }
+      const sizeMap = new Map(items.map((o) => [o.key, o.size]));
+      const entries: HistoryEntry[] = fileKeys.map((k) => {
+        const filename = k.split("/").pop() || k;
+        const errMsg = errorMap.get(k);
+        return {
+          type: "download",
+          filename,
+          key: k,
+          bucket,
+          account_name: String(accountId),
+          size: sizeMap.get(k) ?? null,
+          status: errMsg ? "error" : "done",
+          error: errMsg ?? null,
+          extra: saveDir,
+          timestamp: Date.now(),
+        };
+      });
+      api.appendHistory(entries).catch(() => {});
     } catch (e: unknown) {
       message.error(`Download failed: ${String(e)}`);
     } finally {
@@ -1136,7 +1159,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
       <Modal
         title="New Folder"
         open={folderModal}
-        onOk={handleCreateFolder}
+        onOk={() => folderForm.submit()}
         onCancel={() => {
           setFolderModal(false);
           folderForm.resetFields();
