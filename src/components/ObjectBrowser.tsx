@@ -70,6 +70,22 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
   const { token } = theme.useToken();
   const { accountId, bucket } = target;
 
+  const recordHistory = (
+    type: string, filename: string, key: string,
+    status: "done" | "error", opts?: { size?: number | null; error?: string; extra?: string },
+  ) => {
+    api.appendHistory([{
+      type, filename, key, bucket,
+      account_name: String(accountId),
+      size: opts?.size ?? null,
+      status,
+      error: opts?.error ?? null,
+      extra: opts?.extra ?? null,
+      timestamp: Date.now(),
+    }]).catch(() => {});
+  };
+
+
   const [prefix, setPrefix] = useState("");
   const [items, setItems] = useState<ObjectItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -360,11 +376,13 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
       setDownloads((prev) =>
         prev.map((d) => d.id === taskId ? { ...d, progress: 100, done: true } : d)
       );
+      recordHistory("download", filename, key, "done", { extra: savePath });
       setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 2500);
     } catch (e: unknown) {
       setDownloads((prev) =>
         prev.map((d) => d.id === taskId ? { ...d, error: String(e), done: true } : d)
       );
+      recordHistory("download", filename, key, "error", { error: String(e), extra: savePath });
       setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 5000);
     }
   };
@@ -400,6 +418,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
               u.id === taskId ? { ...u, progress: 100, done: true } : u
             )
           );
+          recordHistory("upload", filename, key, "done");
           setTimeout(() => {
             setUploads((prev) => prev.filter((u) => u.id !== taskId));
           }, 2500);
@@ -409,6 +428,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
               u.id === taskId ? { ...u, error: String(e), done: true } : u
             )
           );
+          recordHistory("upload", filename, key, "error", { error: String(e) });
           setTimeout(() => {
             setUploads((prev) => prev.filter((u) => u.id !== taskId));
           }, 5000);

@@ -8,6 +8,7 @@ import type {
   DeleteResult,
   UploadEntry,
   TransferConfig,
+  HistoryEntry,
 } from "./types";
 
 export const api = {
@@ -226,6 +227,20 @@ export const api = {
 
   checkUpdate(): Promise<{ latestVersion: string; releaseUrl: string }> {
     return invoke("check_update");
+  },
+
+  // ─── History ────────────────────────────────────────────────────────────
+
+  getHistory(): Promise<HistoryEntry[]> {
+    return invoke("get_history");
+  },
+
+  appendHistory(entries: HistoryEntry[]): Promise<{ ok: boolean }> {
+    return invoke("append_history_entry", { entries });
+  },
+
+  clearHistory(): Promise<{ ok: boolean }> {
+    return invoke("clear_history");
   },
 
   // ─── Bucket info ────────────────────────────────────────────────────────────

@@ -137,6 +137,22 @@ pub struct ExpandedEntry {
     pub relative_path: String,
 }
 
+/// Transfer history entry, persisted to disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    #[serde(rename = "type")]
+    pub entry_type: String,
+    pub filename: String,
+    pub key: String,
+    pub bucket: String,
+    pub account_name: String,
+    pub size: Option<i64>,
+    pub status: String,
+    pub error: Option<String>,
+    pub extra: Option<String>,
+    pub timestamp: u64,
+}
+
 /// Batch download progress event payload.
 #[derive(Debug, Clone, Serialize)]
 pub struct DownloadProgress {
