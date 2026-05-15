@@ -1,13 +1,21 @@
 import { useEffect, useState } from "react";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { api } from "./api";
 
-interface UpdateInfo {
-  latestVersion: string;
-  releaseUrl: string;
-}
+export type UpdateState =
+  | { status: "idle" }
+  | { status: "available"; update: Update; version: string }
+  | { status: "downloading"; progress: number }
+  | { status: "ready" }
+  | { status: "error"; message: string };
 
 const CACHE_KEY = "super-s3-update-check";
 const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
+
+interface FallbackInfo {
+  latestVersion: string;
+  releaseUrl: string;
+}
 
 function parseVersion(v: string): number[] {
   return v.replace(/^v/i, "").split(".").map(Number);
@@ -26,44 +34,49 @@ function isNewer(remote: string, local: string): boolean {
 }
 
 export function useUpdateCheck(currentVersion: string) {
-  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [state, setState] = useState<UpdateState>({ status: "idle" });
+  const [fallback, setFallback] = useState<FallbackInfo | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
+    // Check sessionStorage cache first
     const cached = sessionStorage.getItem(CACHE_KEY);
     if (cached) {
       try {
-        const { info, ts } = JSON.parse(cached);
-        if (Date.now() - ts < CACHE_TTL) {
-          if (info && isNewer(info.latestVersion, currentVersion)) {
-            setUpdate(info);
-          }
-          return;
-        }
+        const { ts } = JSON.parse(cached);
+        if (Date.now() - ts < CACHE_TTL) return;
       } catch { /* ignore */ }
     }
 
-    let cancelled = false;
-
-    api
-      .checkUpdate()
-      .then((info) => {
+    (async () => {
+      try {
+        const update = await check();
         if (cancelled) return;
-        sessionStorage.setItem(
-          CACHE_KEY,
-          JSON.stringify({ info, ts: Date.now() })
-        );
-        if (isNewer(info.latestVersion, currentVersion)) {
-          setUpdate(info);
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now() }));
+        if (update) {
+          setState({
+            status: "available",
+            update,
+            version: update.version,
+          });
         }
-      })
-      .catch(() => {
-        // silently ignore
-      });
+      } catch {
+        // Tauri updater failed (e.g., GitHub unreachable) — try Gitee fallback
+        if (cancelled) return;
+        try {
+          const info = await api.checkUpdate();
+          if (cancelled) return;
+          sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now() }));
+          if (isNewer(info.latestVersion, currentVersion)) {
+            setFallback(info);
+          }
+        } catch { /* both failed, silently ignore */ }
+      }
+    })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [currentVersion]);
 
-  return update;
+  return { state, setState, fallback };
 }
