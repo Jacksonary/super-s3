@@ -2,70 +2,34 @@ use crate::s3client;
 use crate::types::{DeleteError, DeleteResult, ListResult, ObjectItem, SearchResult};
 use futures::stream::{self, StreamExt};
 
-/// Helper: list objects with V1 fallback for Qiniu Kodo.
+/// Helper: list objects using V2 API for all providers.
 async fn list_objects_compat(
     client: &aws_sdk_s3::Client,
-    endpoint: &str,
+    _endpoint: &str,
     bucket: &str,
     prefix: &str,
     delimiter: &str,
     max_keys: i32,
     continuation_token: Option<&str>,
 ) -> Result<ListCompatResult, String> {
-    if s3client::is_qiniu(endpoint) {
-        let mut req = client.list_objects().bucket(bucket).prefix(prefix).max_keys(max_keys);
-        if !delimiter.is_empty() {
-            req = req.delimiter(delimiter);
-        }
-        if let Some(ct) = continuation_token {
-            if !ct.is_empty() {
-                req = req.marker(ct);
-            }
-        }
-        let resp = req.send().await.map_err(|e| format!("Failed to list objects: {e}"))?;
-
-        let contents = resp.contents().to_vec();
-        let common_prefixes = resp.common_prefixes().to_vec();
-        let is_truncated = resp.is_truncated().unwrap_or(false);
-        let next_marker = resp
-            .next_marker()
-            .map(|s| s.to_string())
-            .or_else(|| {
-                if is_truncated {
-                    contents.last().and_then(|o| o.key().map(|s| s.to_string()))
-                } else {
-                    None
-                }
-            });
-        let key_count = (contents.len() + common_prefixes.len()) as i32;
-
-        Ok(ListCompatResult {
-            contents,
-            common_prefixes,
-            next_continuation_token: next_marker,
-            is_truncated,
-            key_count,
-        })
-    } else {
-        let mut req = client.list_objects_v2().bucket(bucket).prefix(prefix).max_keys(max_keys);
-        if !delimiter.is_empty() {
-            req = req.delimiter(delimiter);
-        }
-        if let Some(ct) = continuation_token {
-            if !ct.is_empty() {
-                req = req.continuation_token(ct);
-            }
-        }
-        let resp = req.send().await.map_err(|e| format!("Failed to list objects: {e}"))?;
-
-        Ok(ListCompatResult {
-            contents: resp.contents().to_vec(),
-            common_prefixes: resp.common_prefixes().to_vec(),
-            next_continuation_token: resp.next_continuation_token().map(|s| s.to_string()),
-            is_truncated: resp.is_truncated().unwrap_or(false),
-            key_count: resp.key_count().unwrap_or(0),
-        })
+    let mut req = client.list_objects_v2().bucket(bucket).prefix(prefix).max_keys(max_keys);
+    if !delimiter.is_empty() {
+        req = req.delimiter(delimiter);
     }
+    if let Some(ct) = continuation_token {
+        if !ct.is_empty() {
+            req = req.continuation_token(ct);
+        }
+    }
+    let resp = req.send().await.map_err(|e| format!("Failed to list objects: {e:?}"))?;
+
+    Ok(ListCompatResult {
+        contents: resp.contents().to_vec(),
+        common_prefixes: resp.common_prefixes().to_vec(),
+        next_continuation_token: resp.next_continuation_token().map(|s| s.to_string()),
+        is_truncated: resp.is_truncated().unwrap_or(false),
+        key_count: resp.key_count().unwrap_or(0),
+    })
 }
 
 struct ListCompatResult {
