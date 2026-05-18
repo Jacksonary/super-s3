@@ -36,47 +36,54 @@ function isNewer(remote: string, local: string): boolean {
 export function useUpdateCheck(currentVersion: string) {
   const [state, setState] = useState<UpdateState>({ status: "idle" });
   const [fallback, setFallback] = useState<FallbackInfo | null>(null);
+  const [checking, setChecking] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    // Check sessionStorage cache first
-    const cached = sessionStorage.getItem(CACHE_KEY);
-    if (cached) {
-      try {
-        const { ts } = JSON.parse(cached);
-        if (Date.now() - ts < CACHE_TTL) return;
-      } catch { /* ignore */ }
+  const doCheck = async (skipCache = false): Promise<"up-to-date" | "error" | null> => {
+    if (!skipCache) {
+      const cached = sessionStorage.getItem(CACHE_KEY);
+      if (cached) {
+        try {
+          const { ts } = JSON.parse(cached);
+          if (Date.now() - ts < CACHE_TTL) return null;
+        } catch { /* ignore */ }
+      }
     }
 
-    (async () => {
+    setChecking(true);
+    try {
+      const update = await check();
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now() }));
+      if (update) {
+        setState({ status: "available", update, version: update.version });
+      } else if (skipCache) {
+        return "up-to-date";
+      }
+    } catch {
       try {
-        const update = await check();
-        if (cancelled) return;
+        const info = await api.checkUpdate();
         sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now() }));
-        if (update) {
-          setState({
-            status: "available",
-            update,
-            version: update.version,
-          });
+        if (isNewer(info.latestVersion, currentVersion)) {
+          setFallback(info);
+        } else if (skipCache) {
+          return "up-to-date";
         }
       } catch {
-        // Tauri updater failed (e.g., GitHub unreachable) — try Gitee fallback
-        if (cancelled) return;
-        try {
-          const info = await api.checkUpdate();
-          if (cancelled) return;
-          sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now() }));
-          if (isNewer(info.latestVersion, currentVersion)) {
-            setFallback(info);
-          }
-        } catch { /* both failed, silently ignore */ }
+        if (skipCache) return "error";
       }
-    })();
+    } finally {
+      setChecking(false);
+    }
+    return null;
+  };
 
-    return () => { cancelled = true; };
-  }, [currentVersion]);
+  useEffect(() => {
+    doCheck();
+  }, [currentVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { state, setState, fallback };
+  const recheck = async (): Promise<"up-to-date" | "error" | null> => {
+    sessionStorage.removeItem(CACHE_KEY);
+    return doCheck(true);
+  };
+
+  return { state, setState, fallback, checking, recheck };
 }

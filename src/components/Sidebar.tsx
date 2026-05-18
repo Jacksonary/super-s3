@@ -22,6 +22,7 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -48,7 +49,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsAction, setSettingsAction] = useState<SettingsAction>(null);
   const [acctMenu, setAcctMenu] = useState<{ idx: number; name: string; x: number; y: number } | null>(null);
-  const { state: updateState, setState: setUpdateState, fallback } = useUpdateCheck(__APP_VERSION__);
+  const { state: updateState, setState: setUpdateState, fallback, checking, recheck } = useUpdateCheck(__APP_VERSION__);
 
   const updatingRef = useRef(false);
   const updateRef = useRef(updateState.status === "available" ? updateState.update : null);
@@ -79,8 +80,8 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
 
   const retryCheck = () => {
     updatingRef.current = false;
-    sessionStorage.removeItem("super-s3-update-check");
     setUpdateState({ status: "idle" });
+    recheck();
   };
 
   const loadAccounts = async () => {
@@ -353,9 +354,23 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
             </a>
           </Tooltip>
         ) : (
-          <Text style={{ fontSize: 11, color: token.colorTextQuaternary }}>
-            v{__APP_VERSION__}
-          </Text>
+          <Space size={4}>
+            <Text style={{ fontSize: 11, color: token.colorTextQuaternary }}>
+              v{__APP_VERSION__}
+            </Text>
+            <Tooltip title="Check for updates">
+              <ReloadOutlined
+                spin={checking}
+                style={{ fontSize: 11, color: token.colorTextQuaternary, cursor: "pointer" }}
+                onClick={async () => {
+                  if (checking) return;
+                  const result = await recheck();
+                  if (result === "up-to-date") message.info("Already up to date");
+                  else if (result === "error") message.error("Failed to check for updates");
+                }}
+              />
+            </Tooltip>
+          </Space>
         )}
 
         <Space size={4} align="center">
