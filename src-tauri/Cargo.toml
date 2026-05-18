@@ -20,12 +20,14 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
 aws-types = "1"
 aws-smithy-types = "1"
+aws-smithy-runtime-api = "1"
+md-5 = "0.10"
+base64 = "0.21"
 thiserror = "2"
 urlencoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-futures = "0.3.32"
 tauri-plugin-process = "2.3.1"
 
 [build-dependencies]

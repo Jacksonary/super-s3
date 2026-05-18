@@ -1,6 +1,5 @@
 use crate::s3client;
 use crate::types::{DeleteError, DeleteResult, ListResult, ObjectItem, SearchResult};
-use futures::stream::{self, StreamExt};
 
 /// Helper: list objects using V2 API for all providers.
 async fn list_objects_compat(
@@ -196,13 +195,7 @@ pub async fn delete_objects(
         });
     }
 
-    let (client, endpoint) = s3client::get_client_with_endpoint(account_idx)?;
-
-    // Qiniu Kodo doesn't support the x-amz-checksum-crc32 header that
-    // AWS SDK attaches to DeleteObjects requests. Fall back to single deletes.
-    if s3client::is_qiniu(&endpoint) {
-        return delete_objects_one_by_one(&client, &bucket, keys).await;
-    }
+    let client = s3client::get_client(account_idx)?;
 
     let mut total_deleted = 0i32;
     let mut all_errors = vec![];
@@ -248,43 +241,6 @@ pub async fn delete_objects(
     })
 }
 
-async fn delete_objects_one_by_one(
-    client: &aws_sdk_s3::Client,
-    bucket: &str,
-    keys: Vec<String>,
-) -> Result<DeleteResult, String> {
-    let results: Vec<Result<(), DeleteError>> = stream::iter(keys)
-        .map(|key| {
-            let client = client.clone();
-            let bucket = bucket.to_owned();
-            async move {
-                client.delete_object().bucket(&bucket).key(&key).send().await
-                    .map(|_| ())
-                    .map_err(|e| DeleteError { key, message: format!("{e}") })
-            }
-        })
-        .buffer_unordered(10)
-        .collect()
-        .await;
-
-    let mut total_deleted = 0i32;
-    let mut all_errors = vec![];
-    for r in results {
-        match r {
-            Ok(()) => total_deleted += 1,
-            Err(e) => all_errors.push(e),
-        }
-    }
-
-    if total_deleted == 0 && !all_errors.is_empty() {
-        return Err(format!("Failed to delete objects: {}", all_errors[0].message));
-    }
-
-    Ok(DeleteResult {
-        deleted: total_deleted,
-        errors: all_errors,
-    })
-}
 
 #[tauri::command]
 pub async fn create_folder(
