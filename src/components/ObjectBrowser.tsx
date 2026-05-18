@@ -1215,6 +1215,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         target={target}
         item={drawerItem}
         onClose={() => setDrawerItem(null)}
+        setDownloads={setDownloads}
+        transferConfig={transferConfig}
       />
 
       {/* Bucket info drawer */}

@@ -24,7 +24,7 @@ import {
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../api";
-import type { ObjectItem, ObjectMeta, SelectedBucket } from "../types";
+import type { ObjectItem, ObjectMeta, SelectedBucket, DownloadTask, TransferConfig } from "../types";
 import { fmtSize, fmtDate } from "../utils";
 
 const { Text } = Typography;
@@ -34,6 +34,8 @@ interface Props {
   target: SelectedBucket;
   item: ObjectItem | null;
   onClose: () => void;
+  setDownloads: React.Dispatch<React.SetStateAction<DownloadTask[]>>;
+  transferConfig: TransferConfig;
 }
 
 // ─── file type detection ──────────────────────────────────────────────────────
@@ -61,7 +63,7 @@ function detectPreviewType(item: ObjectItem, contentType?: string | null): Previ
 
 // ─── component ────────────────────────────────────────────────────────────────
 
-export function DetailDrawer({ open, target, item, onClose }: Props) {
+export function DetailDrawer({ open, target, item, onClose, setDownloads, transferConfig }: Props) {
   const { token } = theme.useToken();
   const { accountId, bucket } = target;
 
@@ -165,9 +167,13 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
     const filename = item.key.split("/").pop() || "file";
     const savePath = await save({ defaultPath: filename, title: "Save file" });
     if (!savePath) return;
+    const taskId = `dl-${Date.now()}-${filename}`;
+    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, done: false }]);
     try {
-      await api.download(accountId, bucket, item.key, savePath);
-      message.success("Download complete");
+      await api.download(accountId, bucket, item.key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size);
+      setDownloads((prev) =>
+        prev.map((d) => d.id === taskId ? { ...d, progress: 100, done: true } : d)
+      );
       api.appendHistory([{
         type: "download",
         filename,
@@ -180,8 +186,11 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
         extra: savePath,
         timestamp: Date.now(),
       }]).catch(() => {});
+      setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 2500);
     } catch (e: unknown) {
-      message.error(`Download failed: ${e}`);
+      setDownloads((prev) =>
+        prev.map((d) => d.id === taskId ? { ...d, error: String(e), done: true } : d)
+      );
       api.appendHistory([{
         type: "download",
         filename,
@@ -194,6 +203,7 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
         extra: savePath,
         timestamp: Date.now(),
       }]).catch(() => {});
+      setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 5000);
     }
   };
 
