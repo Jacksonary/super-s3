@@ -1064,7 +1064,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
 
       {/* Table */}
       <div className="table-container" style={{ background: token.colorBgContainer }} onContextMenu={() => setCtxMenu(null)}>
-        {loading ? (
+        {loading && items.length === 0 ? (
           <div className="content-center">
             <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
           </div>
@@ -1076,7 +1076,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             columns={columns}
             pagination={false}
             size="small"
-            loading={deleting}
+            loading={loading || deleting}
             rowSelection={{
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),
