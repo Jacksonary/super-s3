@@ -11,21 +11,31 @@ pub struct TransferConfig {
     /// Parallel Range GET connections for a single large file download. Range 1–20.
     #[serde(default = "default_download_connections")]
     pub download_connections: usize,
+    /// Size (MB) of each Range GET chunk for large file downloads. Range 4–64.
+    #[serde(default = "default_download_part_size")]
+    pub download_part_size: u64,
     /// Concurrent multipart parts for a single large file upload. Range 1–16.
     #[serde(default = "default_upload_part_concurrency")]
     pub upload_part_concurrency: usize,
+    /// Size (MB) of each multipart upload chunk. Range 8–64.
+    #[serde(default = "default_upload_part_size")]
+    pub upload_part_size: u64,
 }
 
 fn default_concurrent_files() -> usize { 5 }
 fn default_download_connections() -> usize { 12 }
+fn default_download_part_size() -> u64 { 8 }
 fn default_upload_part_concurrency() -> usize { 4 }
+fn default_upload_part_size() -> u64 { 16 }
 
 impl Default for TransferConfig {
     fn default() -> Self {
         Self {
             concurrent_files: default_concurrent_files(),
             download_connections: default_download_connections(),
+            download_part_size: default_download_part_size(),
             upload_part_concurrency: default_upload_part_concurrency(),
+            upload_part_size: default_upload_part_size(),
         }
     }
 }
