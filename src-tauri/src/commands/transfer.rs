@@ -280,7 +280,7 @@ pub async fn upload_object(
     content_type: Option<String>,
     task_id: Option<String>,
     part_concurrency: Option<usize>,
-    part_size_mb: Option<usize>,
+    part_size_mb: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let client = s3client::get_client(account_idx)?;
     let ct = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
@@ -294,12 +294,12 @@ pub async fn upload_object(
     emit_progress(&app, "upload-progress", &task_id, 0);
 
     const MULTIPART_THRESHOLD: u64 = 100 * 1024 * 1024; // 100 MB
-    const DEFAULT_PART_SIZE_MB: usize = 16;
+    const DEFAULT_PART_SIZE_MB: u64 = 16;
     const MAX_CONCURRENT_PARTS: usize = 4;
 
     let part_size = part_size_mb
         .map(|s| s.clamp(8, 64) * 1024 * 1024)
-        .unwrap_or(DEFAULT_PART_SIZE_MB * 1024 * 1024);
+        .unwrap_or(DEFAULT_PART_SIZE_MB * 1024 * 1024) as usize;
     let max_parts = part_concurrency
         .map(|c| c.clamp(1, 16))
         .unwrap_or(MAX_CONCURRENT_PARTS);
