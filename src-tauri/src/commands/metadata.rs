@@ -86,13 +86,10 @@ pub async fn preview_object(
 
     let bytes = body.into_bytes();
 
-    // Try UTF-8 first, fall back to Latin-1
-    let text = match std::str::from_utf8(&bytes) {
-        Ok(s) => s.to_string(),
-        Err(_) => bytes.iter().map(|&b| b as char).collect(),
-    };
-
-    Ok(serde_json::json!({ "text": text }))
+    match std::str::from_utf8(&bytes) {
+        Ok(s) => Ok(serde_json::json!({ "text": s, "binary": false })),
+        Err(_) => Ok(serde_json::json!({ "text": null, "binary": true })),
+    }
 }
 
 #[tauri::command]

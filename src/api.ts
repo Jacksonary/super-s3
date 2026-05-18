@@ -93,7 +93,8 @@ export const api = {
     key: string,
     savePath: string,
     taskId?: string,
-    connections?: number
+    connections?: number,
+    partSizeMb?: number
   ): Promise<{ success: boolean }> {
     return invoke("download_object", {
       accountIdx: accountId,
@@ -102,6 +103,7 @@ export const api = {
       savePath,
       taskId: taskId ?? null,
       connections: connections ?? null,
+      partSizeMb: partSizeMb ?? null,
     });
   },
 
@@ -132,7 +134,7 @@ export const api = {
     bucket: string,
     key: string,
     maxBytes?: number
-  ): Promise<{ text: string }> {
+  ): Promise<{ text: string | null; binary: boolean }> {
     return invoke("preview_object", {
       accountIdx: accountId,
       bucket,
@@ -170,7 +172,8 @@ export const api = {
     filePath: string,
     contentType?: string,
     taskId?: string,
-    partConcurrency?: number
+    partConcurrency?: number,
+    partSizeMb?: number
   ): Promise<{ success: boolean; key: string; size: number }> {
     return invoke("upload_object", {
       accountIdx: accountId,
@@ -180,6 +183,7 @@ export const api = {
       contentType: contentType ?? null,
       taskId: taskId ?? null,
       partConcurrency: partConcurrency ?? null,
+      partSizeMb: partSizeMb ?? null,
     });
   },
 

@@ -63,7 +63,9 @@ export interface SelectedBucket {
 export interface TransferConfig {
   concurrent_files: number;
   download_connections: number;
+  download_part_size: number;
   upload_part_concurrency: number;
+  upload_part_size: number;
 }
 
 export interface UploadTask {
