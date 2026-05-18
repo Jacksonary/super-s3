@@ -1,10 +1,51 @@
 use crate::types::{AccountConfig, HistoryEntry, TransferConfig};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::{BehaviorVersion, Region, SharedCredentialsProvider};
+use aws_smithy_runtime_api::client::interceptors::context::BeforeTransmitInterceptorContextMut;
+use aws_smithy_runtime_api::client::interceptors::Intercept;
+use aws_smithy_runtime_api::client::runtime_components::RuntimeComponents;
 use aws_smithy_types::checksum_config::{RequestChecksumCalculation, ResponseChecksumValidation};
+use aws_smithy_types::config_bag::ConfigBag;
+use base64::Engine;
+use md5::{Digest, Md5};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+
+// ─── Content-MD5 interceptor for Qiniu Kodo ─────────────────────────────────
+//
+// Qiniu requires Content-MD5 header for DeleteObjects but aws-sdk-s3 sends
+// x-amz-checksum-crc32 instead. This interceptor replaces CRC32 with MD5.
+
+#[derive(Debug)]
+struct ContentMd5Interceptor;
+
+impl Intercept for ContentMd5Interceptor {
+    fn name(&self) -> &'static str {
+        "ContentMd5Interceptor"
+    }
+
+    fn modify_before_signing(
+        &self,
+        context: &mut BeforeTransmitInterceptorContextMut<'_>,
+        _runtime_components: &RuntimeComponents,
+        _cfg: &mut ConfigBag,
+    ) -> Result<(), aws_smithy_runtime_api::box_error::BoxError> {
+        let request = context.request_mut();
+        // Only act if the SDK attached a CRC32 checksum (e.g. DeleteObjects)
+        if request.headers().get("x-amz-checksum-crc32").is_some() {
+            request.headers_mut().remove("x-amz-checksum-crc32");
+            if let Some(body_bytes) = request.body().bytes() {
+                let digest = Md5::digest(body_bytes);
+                let md5_b64 = base64::engine::general_purpose::STANDARD.encode(digest);
+                request
+                    .headers_mut()
+                    .insert("Content-MD5", md5_b64);
+            }
+        }
+        Ok(())
+    }
+}
 
 // ─── Config file lock (serializes load_config / save_config) ─────────────────
 
@@ -116,6 +157,10 @@ pub fn make_client(account: &AccountConfig) -> aws_sdk_s3::Client {
 
     if !account.endpoint.is_empty() {
         builder = builder.endpoint_url(&account.endpoint);
+    }
+
+    if is_qiniu(&account.endpoint) {
+        builder = builder.interceptor(ContentMd5Interceptor);
     }
 
     aws_sdk_s3::Client::from_conf(builder.build())
