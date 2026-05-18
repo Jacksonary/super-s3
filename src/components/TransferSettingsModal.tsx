@@ -15,7 +15,9 @@ interface Props {
 const DEFAULTS: TransferConfig = {
   concurrent_files: 5,
   download_connections: 12,
+  download_part_size: 8,
   upload_part_concurrency: 4,
+  upload_part_size: 16,
 };
 
 export function TransferSettingsModal({ open, onClose, onSave }: Props) {
@@ -111,10 +113,32 @@ export function TransferSettingsModal({ open, onClose, onSave }: Props) {
         <Form.Item
           label={
             <Space direction="vertical" size={0}>
+              <Text strong>Download part size (MB)</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Size of each Range GET chunk. Larger parts reduce HTTP overhead
+                but use more memory per connection.
+              </Text>
+            </Space>
+          }
+        >
+          <Slider
+            min={4}
+            max={64}
+            step={4}
+            marks={{ 4: "4", 8: "8", 16: "16", 32: "32", 64: "64" }}
+            value={cfg.download_part_size}
+            onChange={(v) => setCfg((p) => ({ ...p, download_part_size: v }))}
+          />
+        </Form.Item>
+
+        <Divider style={{ margin: "8px 0" }} />
+
+        <Form.Item
+          label={
+            <Space direction="vertical" size={0}>
               <Text strong>Upload part concurrency</Text>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 Simultaneous multipart chunks for large file uploads (≥100 MB).
-                Higher values use more memory (16 MB per part).
               </Text>
             </Space>
           }
@@ -128,10 +152,33 @@ export function TransferSettingsModal({ open, onClose, onSave }: Props) {
           />
         </Form.Item>
 
+        <Divider style={{ margin: "8px 0" }} />
+
+        <Form.Item
+          label={
+            <Space direction="vertical" size={0}>
+              <Text strong>Upload part size (MB)</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Size of each multipart upload chunk. Larger parts reduce HTTP
+                overhead but use more memory per concurrent upload.
+              </Text>
+            </Space>
+          }
+        >
+          <Slider
+            min={8}
+            max={64}
+            step={8}
+            marks={{ 8: "8", 16: "16", 32: "32", 64: "64" }}
+            value={cfg.upload_part_size}
+            onChange={(v) => setCfg((p) => ({ ...p, upload_part_size: v }))}
+          />
+        </Form.Item>
+
         <Text type="secondary" style={{ fontSize: 11 }}>
           Memory used for large transfers: up to{" "}
-          {cfg.download_connections * 4} MB (download) /{" "}
-          {cfg.upload_part_concurrency * 16} MB (upload)
+          {cfg.download_connections * cfg.download_part_size} MB (download) /{" "}
+          {cfg.upload_part_concurrency * cfg.upload_part_size} MB (upload)
         </Text>
       </Form>
     </Modal>

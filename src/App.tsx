@@ -11,6 +11,8 @@ import { api } from "./api";
 const DEFAULT_TRANSFER_CONFIG: TransferConfig = {
   concurrent_files: 5,
   download_connections: 12,
+  download_part_size: 8,
+  upload_part_size: 16,
   upload_part_concurrency: 4,
 };
 

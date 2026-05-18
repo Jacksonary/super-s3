@@ -67,12 +67,13 @@ pub async fn download_object(
     save_path: String,
     task_id: Option<String>,
     connections: Option<usize>,
+    part_size_mb: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let save = std::path::Path::new(&save_path);
     let tmp_path = tmp_path_for(save);
 
     let result =
-        download_inner(&app, account_idx, &bucket, &key, &tmp_path, &task_id, connections).await;
+        download_inner(&app, account_idx, &bucket, &key, &tmp_path, &task_id, connections, part_size_mb).await;
 
     match result {
         Ok(()) => {
@@ -96,13 +97,17 @@ async fn download_inner(
     tmp_path: &std::path::Path,
     task_id: &Option<String>,
     connections: Option<usize>,
+    part_size_mb: Option<u64>,
 ) -> Result<(), String> {
     let client = s3client::get_client(account_idx)?;
 
     const RANGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100 MB
-    const RANGE_PART_SIZE: u64 = 4 * 1024 * 1024;   // 4 MB — faster slot turnover
-    const MAX_CONCURRENT_RANGES: usize = 12;          // saturate high-latency links
+    const DEFAULT_PART_SIZE_MB: u64 = 8;
+    const MAX_CONCURRENT_RANGES: usize = 12;
 
+    let range_part_size = part_size_mb
+        .map(|s| s.clamp(4, 64) * 1024 * 1024)
+        .unwrap_or(DEFAULT_PART_SIZE_MB * 1024 * 1024);
     let max_concurrent = connections
         .map(|c| c.clamp(1, 20))
         .unwrap_or(MAX_CONCURRENT_RANGES);
@@ -134,7 +139,7 @@ async fn download_inner(
             .map_err(|e| format!("Failed to pre-allocate file: {e}"))?;
         let file = Arc::new(tokio::sync::Mutex::new(file));
 
-        let num_parts = total.div_ceil(RANGE_PART_SIZE);
+        let num_parts = total.div_ceil(range_part_size);
         let mut join_set: JoinSet<Result<(), String>> = JoinSet::new();
         let mut completed_ranges: u64 = 0;
 
@@ -161,8 +166,8 @@ async fn download_inner(
                 }
             }
 
-            let start = part_idx * RANGE_PART_SIZE;
-            let end = (start + RANGE_PART_SIZE - 1).min(total - 1);
+            let start = part_idx * range_part_size;
+            let end = (start + range_part_size - 1).min(total - 1);
             let range_str = format!("bytes={start}-{end}");
 
             let cl = client.clone();
@@ -275,6 +280,7 @@ pub async fn upload_object(
     content_type: Option<String>,
     task_id: Option<String>,
     part_concurrency: Option<usize>,
+    part_size_mb: Option<usize>,
 ) -> Result<serde_json::Value, String> {
     let client = s3client::get_client(account_idx)?;
     let ct = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
@@ -288,9 +294,12 @@ pub async fn upload_object(
     emit_progress(&app, "upload-progress", &task_id, 0);
 
     const MULTIPART_THRESHOLD: u64 = 100 * 1024 * 1024; // 100 MB
-    const PART_SIZE: usize = 16 * 1024 * 1024; // 16 MB
+    const DEFAULT_PART_SIZE_MB: usize = 16;
     const MAX_CONCURRENT_PARTS: usize = 4;
 
+    let part_size = part_size_mb
+        .map(|s| s.clamp(8, 64) * 1024 * 1024)
+        .unwrap_or(DEFAULT_PART_SIZE_MB * 1024 * 1024);
     let max_parts = part_concurrency
         .map(|c| c.clamp(1, 16))
         .unwrap_or(MAX_CONCURRENT_PARTS);
@@ -336,7 +345,7 @@ pub async fn upload_object(
             });
         };
 
-        let total_parts = (size as usize).div_ceil(PART_SIZE) as u32;
+        let total_parts = (size as usize).div_ceil(part_size) as u32;
         debug_assert!(total_parts > 0);
 
         // completed_parts will be populated out-of-order as parts finish concurrently.
@@ -346,7 +355,7 @@ pub async fn upload_object(
             .map_err(|e| format!("Failed to open file: {e}"))?;
         let mut part_number = 1i32;
         let mut join_set: JoinSet<Result<(i32, String), String>> = JoinSet::new();
-        let mut buf = vec![0u8; PART_SIZE];
+        let mut buf = vec![0u8; part_size];
 
         loop {
             // Drain one completed part before reading the next chunk when at capacity,
@@ -380,7 +389,7 @@ pub async fn upload_object(
                     .map_err(|e| format!("Failed to read file: {e}"))?;
                 if n == 0 { break; }
                 bytes_read += n;
-                if bytes_read == PART_SIZE { break; }
+                if bytes_read == part_size { break; }
             }
             if bytes_read == 0 { break; }
 

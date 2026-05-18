@@ -223,7 +223,9 @@ function AccountSection({ onAccountsChange, onClose, initialAction }: { onAccoun
 const TRANSFER_DEFAULTS: TransferConfig = {
   concurrent_files: 5,
   download_connections: 12,
+  download_part_size: 8,
   upload_part_concurrency: 4,
+  upload_part_size: 16,
 };
 
 function GeneralSection({
@@ -308,7 +310,7 @@ function GeneralSection({
             onChange={(v) => setCfg((p) => ({ ...p, upload_part_concurrency: v }))} />
         </Form.Item>
         <Text type="secondary" style={{ fontSize: 11 }}>
-          Memory: up to {cfg.download_connections * 4} MB (download) / {cfg.upload_part_concurrency * 16} MB (upload)
+          Memory: up to {cfg.download_connections * cfg.download_part_size} MB (download) / {cfg.upload_part_concurrency * cfg.upload_part_size} MB (upload)
         </Text>
       </Form>
       <div style={{ marginTop: 16, display: "flex", gap: 8 }}>

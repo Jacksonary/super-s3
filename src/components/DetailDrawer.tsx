@@ -124,10 +124,14 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
     if (!item) return;
     setContentLoading(true);
     try {
-      const { text } = await api.preview(accountId, bucket, item.key, PREVIEW_MAX_BYTES);
-      setPreviewText(text);
-      setEditText(text);
-      setContentReady(true);
+      const { text, binary } = await api.preview(accountId, bucket, item.key, PREVIEW_MAX_BYTES);
+      if (binary || text === null) {
+        message.warning("Binary file cannot be previewed as text.");
+      } else {
+        setPreviewText(text);
+        setEditText(text);
+        setContentReady(true);
+      }
     } catch {
       message.error("Failed to load file content.");
     } finally {
@@ -164,8 +168,32 @@ export function DetailDrawer({ open, target, item, onClose }: Props) {
     try {
       await api.download(accountId, bucket, item.key, savePath);
       message.success("Download complete");
+      api.appendHistory([{
+        type: "download",
+        filename,
+        key: item.key,
+        bucket,
+        account_name: String(accountId),
+        size: item.size ?? null,
+        status: "done",
+        error: null,
+        extra: savePath,
+        timestamp: Date.now(),
+      }]).catch(() => {});
     } catch (e: unknown) {
       message.error(`Download failed: ${e}`);
+      api.appendHistory([{
+        type: "download",
+        filename,
+        key: item.key,
+        bucket,
+        account_name: String(accountId),
+        size: item.size ?? null,
+        status: "error",
+        error: String(e),
+        extra: savePath,
+        timestamp: Date.now(),
+      }]).catch(() => {});
     }
   };
 
