@@ -300,14 +300,38 @@ function GeneralSection({
         <Form.Item
           label={
             <Space direction="vertical" size={0}>
+              <Text strong>Download part size (MB)</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>Size of each Range GET chunk. Larger parts reduce HTTP overhead but use more memory.</Text>
+            </Space>
+          }
+        >
+          <Slider min={4} max={64} step={4} marks={{ 4: "4", 8: "8", 16: "16", 32: "32", 64: "64" }}
+            value={cfg.download_part_size}
+            onChange={(v) => setCfg((p) => ({ ...p, download_part_size: v }))} />
+        </Form.Item>
+        <Form.Item
+          label={
+            <Space direction="vertical" size={0}>
               <Text strong>Upload part concurrency</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>Simultaneous multipart chunks for large uploads (≥100 MB). Each part uses 16 MB memory.</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>Simultaneous multipart chunks for large uploads (≥100 MB).</Text>
             </Space>
           }
         >
           <Slider min={1} max={16} marks={{ 1: "1", 4: "4", 8: "8", 16: "16" }}
             value={cfg.upload_part_concurrency}
             onChange={(v) => setCfg((p) => ({ ...p, upload_part_concurrency: v }))} />
+        </Form.Item>
+        <Form.Item
+          label={
+            <Space direction="vertical" size={0}>
+              <Text strong>Upload part size (MB)</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>Size of each multipart upload chunk. Larger parts reduce HTTP overhead but use more memory.</Text>
+            </Space>
+          }
+        >
+          <Slider min={8} max={64} step={8} marks={{ 8: "8", 16: "16", 32: "32", 64: "64" }}
+            value={cfg.upload_part_size}
+            onChange={(v) => setCfg((p) => ({ ...p, upload_part_size: v }))} />
         </Form.Item>
         <Text type="secondary" style={{ fontSize: 11 }}>
           Memory: up to {cfg.download_connections * cfg.download_part_size} MB (download) / {cfg.upload_part_concurrency * cfg.upload_part_size} MB (upload)
