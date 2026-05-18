@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Sidebar } from "./components/Sidebar";
 import { ObjectBrowser } from "./components/ObjectBrowser";
 import { TransferPanel } from "./components/TransferPanel";
-import type { SelectedBucket, TransferConfig, UploadTask, DownloadTask } from "./types";
+import type { SelectedBucket, TransferConfig, UploadTask, DownloadTask, TransferStatus } from "./types";
 import { api } from "./api";
 
 const DEFAULT_TRANSFER_CONFIG: TransferConfig = {
@@ -77,7 +77,7 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
     api.getTransferConfig().then(setTransferConfig).catch(() => {});
   }, []);
 
-  // Global event listeners for transfer progress.
+  // Global event listeners for transfer progress + state changes.
   useEffect(() => {
     const unlistenUpload = listen<{ task_id: string; progress: number }>(
       "upload-progress",
@@ -97,9 +97,23 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
         );
       }
     );
+    const unlistenState = listen<{ task_id: string; state: string }>(
+      "transfer-state",
+      (event) => {
+        const { task_id, state } = event.payload;
+        const status = state as TransferStatus;
+        setUploads((prev) =>
+          prev.map((u) => (u.id === task_id ? { ...u, status } : u))
+        );
+        setDownloads((prev) =>
+          prev.map((d) => (d.id === task_id ? { ...d, status } : d))
+        );
+      }
+    );
     return () => {
       unlistenUpload.then((fn) => fn());
       unlistenDownload.then((fn) => fn());
+      unlistenState.then((fn) => fn());
     };
   }, []);
 
@@ -109,10 +123,16 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
   const handleDismissDownload = (id: string) =>
     setDownloads((prev) => prev.filter((d) => d.id !== id));
 
+  const isFinished = (s: TransferStatus) => s === "done" || s === "error" || s === "cancelled";
+
   const handleClearAll = () => {
-    setUploads((prev) => prev.filter((u) => !u.done));
-    setDownloads((prev) => prev.filter((d) => !d.done));
+    setUploads((prev) => prev.filter((u) => !isFinished(u.status)));
+    setDownloads((prev) => prev.filter((d) => !isFinished(d.status)));
   };
+
+  const handlePause = (taskId: string) => api.pauseTransfer(taskId).catch(() => {});
+  const handleResume = (taskId: string) => api.resumeTransfer(taskId).catch(() => {});
+  const handleCancel = (taskId: string) => api.cancelTransfer(taskId).catch(() => {});
 
   return (
     <Layout
@@ -190,6 +210,9 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
         onDismissUpload={handleDismissUpload}
         onDismissDownload={handleDismissDownload}
         onClearAll={handleClearAll}
+        onPause={handlePause}
+        onResume={handleResume}
+        onCancel={handleCancel}
       />
     </Layout>
   );

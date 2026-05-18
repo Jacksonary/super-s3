@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod commands;
 mod s3client;
+mod task_registry;
 pub mod types;
 
 pub fn run() {
@@ -57,6 +58,9 @@ pub fn run() {
             commands::transfer::upload_object,
             commands::transfer::presign_object,
             commands::transfer::expand_paths,
+            commands::transfer::cancel_transfer,
+            commands::transfer::pause_transfer,
+            commands::transfer::resume_transfer,
             // Update
             commands::update::check_update,
             // Metadata

@@ -373,19 +373,28 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
     const savePath = await save({ defaultPath: filename, title: "Save file" });
     if (!savePath) return;
     const taskId = `dl-${Date.now()}-${filename}`;
-    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, done: false }]);
+    const retry = () => {
+      setDownloads((prev) => prev.filter((d) => d.id !== taskId));
+      handleDownload(key);
+    };
+    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", savePath, key, retry }]);
     try {
       await api.download(accountId, bucket, key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size);
       setDownloads((prev) =>
-        prev.map((d) => d.id === taskId ? { ...d, progress: 100, done: true } : d)
+        prev.map((d) => d.id === taskId ? { ...d, progress: 100, status: "done" as const } : d)
       );
       recordHistory("download", filename, key, "done", { extra: savePath });
       setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 2500);
     } catch (e: unknown) {
+      const isCancelled = String(e).includes("Transfer cancelled");
       setDownloads((prev) =>
-        prev.map((d) => d.id === taskId ? { ...d, error: String(e), done: true } : d)
+        prev.map((d) => d.id === taskId
+          ? { ...d, error: isCancelled ? undefined : String(e), status: isCancelled ? "cancelled" as const : "error" as const }
+          : d)
       );
-      recordHistory("download", filename, key, "error", { error: String(e), extra: savePath });
+      if (!isCancelled) {
+        recordHistory("download", filename, key, "error", { error: String(e), extra: savePath });
+      }
       setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 5000);
     }
   };
@@ -412,13 +421,13 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         };
         setUploads((prev) => [
           ...prev,
-          { id: taskId, filename, progress: 0, done: false, filePath, relPath, key, retry },
+          { id: taskId, filename, progress: 0, status: "running", filePath, relPath, key, retry },
         ]);
         try {
           await api.uploadObject(accountId, bucket, key, filePath, undefined, taskId, transferConfig.upload_part_concurrency, transferConfig.upload_part_size);
           setUploads((prev) =>
             prev.map((u) =>
-              u.id === taskId ? { ...u, progress: 100, done: true } : u
+              u.id === taskId ? { ...u, progress: 100, status: "done" as const } : u
             )
           );
           recordHistory("upload", filename, key, "done");
@@ -426,12 +435,17 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             setUploads((prev) => prev.filter((u) => u.id !== taskId));
           }, 2500);
         } catch (e: unknown) {
+          const isCancelled = String(e).includes("Transfer cancelled");
           setUploads((prev) =>
             prev.map((u) =>
-              u.id === taskId ? { ...u, error: String(e), done: true } : u
+              u.id === taskId
+                ? { ...u, error: isCancelled ? undefined : String(e), status: isCancelled ? "cancelled" as const : "error" as const }
+                : u
             )
           );
-          recordHistory("upload", filename, key, "error", { error: String(e) });
+          if (!isCancelled) {
+            recordHistory("upload", filename, key, "error", { error: String(e) });
+          }
           setTimeout(() => {
             setUploads((prev) => prev.filter((u) => u.id !== taskId));
           }, 5000);

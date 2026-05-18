@@ -1,5 +1,6 @@
 use crate::s3client;
-use crate::types::{DownloadProgress, ExpandedEntry, TaskProgress};
+use crate::task_registry;
+use crate::types::{DownloadProgress, ExpandedEntry, TaskProgress, TransferStateEvent};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use std::path::PathBuf;
@@ -69,11 +70,20 @@ pub async fn download_object(
     connections: Option<usize>,
     part_size_mb: Option<u64>,
 ) -> Result<serde_json::Value, String> {
+    // TaskGuard registers in the registry (only when task_id is Some) and
+    // deregisters on drop — guaranteed on any exit path (Ok, Err, panic).
+    let guard = task_registry::register_task(task_id.clone());
+
     let save = std::path::Path::new(&save_path);
     let tmp_path = tmp_path_for(save);
 
-    let result =
-        download_inner(&app, account_idx, &bucket, &key, &tmp_path, &task_id, connections, part_size_mb).await;
+    let result = download_inner(
+        &app, account_idx, &bucket, &key, &tmp_path, &task_id,
+        connections, part_size_mb, &guard.cancel_token, &guard.pause_rx,
+    )
+    .await;
+
+    let is_cancelled = result.as_ref().err().map_or(false, |e| e.contains("Transfer cancelled"));
 
     match result {
         Ok(()) => {
@@ -84,9 +94,16 @@ pub async fn download_object(
         }
         Err(e) => {
             let _ = tokio::fs::remove_file(&tmp_path).await;
+            if is_cancelled {
+                let _ = app.emit("transfer-state", TransferStateEvent {
+                    task_id: task_id.clone().unwrap_or_default(),
+                    state: "cancelled".to_string(),
+                });
+            }
             Err(e)
         }
     }
+    // `guard` is dropped here → deregisters automatically.
 }
 
 async fn download_inner(
@@ -98,6 +115,8 @@ async fn download_inner(
     task_id: &Option<String>,
     connections: Option<usize>,
     part_size_mb: Option<u64>,
+    cancel_token: &tokio_util::sync::CancellationToken,
+    pause_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
     let client = s3client::get_client(account_idx)?;
 
@@ -168,6 +187,16 @@ async fn download_inner(
 
             let start = part_idx * range_part_size;
             let end = (start + range_part_size - 1).min(total - 1);
+
+            // Check for cancellation or pause before spawning the next range.
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    join_set.abort_all();
+                    return Err("Transfer cancelled".to_string());
+                }
+                _ = task_registry::wait_if_paused(pause_rx) => {}
+            }
+
             let range_str = format!("bytes={start}-{end}");
 
             let cl = client.clone();
@@ -246,6 +275,9 @@ async fn download_inner(
         let mut last_pct: u8 = 0;
 
         while let Some(chunk) = body.next().await {
+            if cancel_token.is_cancelled() {
+                return Err("Transfer cancelled".to_string());
+            }
             let bytes = chunk.map_err(|e| format!("Failed to read body: {e}"))?;
             file.write_all(&bytes)
                 .await
@@ -282,6 +314,10 @@ pub async fn upload_object(
     part_concurrency: Option<usize>,
     part_size_mb: Option<u64>,
 ) -> Result<serde_json::Value, String> {
+    // TaskGuard registers in the registry (only when task_id is Some) and
+    // deregisters on drop — guaranteed on any exit path (Ok, Err, panic).
+    let guard = task_registry::register_task(task_id.clone());
+
     let client = s3client::get_client(account_idx)?;
     let ct = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
 
@@ -309,16 +345,21 @@ pub async fn upload_object(
         let data = tokio::fs::read(&file_path)
             .await
             .map_err(|e| format!("Failed to read file: {e}"))?;
-        client
-            .put_object()
-            .bucket(&bucket)
-            .key(&key)
-            .body(ByteStream::from(data))
-            .content_length(content_len)
-            .content_type(&ct)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to upload: {e}"))?;
+        tokio::select! {
+            result = client
+                .put_object()
+                .bucket(&bucket)
+                .key(&key)
+                .body(ByteStream::from(data))
+                .content_length(content_len)
+                .content_type(&ct)
+                .send() => {
+                result.map_err(|e| format!("Failed to upload: {e}"))?;
+            }
+            _ = guard.cancel_token.cancelled() => {
+                return Err("Transfer cancelled".to_string());
+            }
+        }
     } else {
         // Large file: multipart upload with concurrent part uploads.
         let upload_id = client
@@ -378,6 +419,16 @@ pub async fn upload_object(
                 let done = completed_parts.len() as u32;
                 let pct = ((done * 100) / total_parts).min(99) as u8;
                 emit_progress(&app, "upload-progress", &task_id, pct);
+            }
+
+            // Check for cancellation or pause before reading the next chunk.
+            tokio::select! {
+                _ = guard.cancel_token.cancelled() => {
+                    join_set.abort_all();
+                    abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
+                    return Err("Transfer cancelled".to_string());
+                }
+                _ = task_registry::wait_if_paused(&guard.pause_rx) => {}
             }
 
             // Read the next chunk.
@@ -475,6 +526,40 @@ pub async fn upload_object(
 
     emit_progress(&app, "upload-progress", &task_id, 100);
     Ok(serde_json::json!({ "success": true, "key": key, "size": size }))
+    // `guard` is dropped here → deregisters automatically.
+}
+
+/// Cancel a running transfer. The transfer coroutine will detect the signal and abort.
+#[tauri::command]
+pub fn cancel_transfer(app: tauri::AppHandle, task_id: String) -> Result<(), String> {
+    task_registry::cancel_task(&task_id)?;
+    let _ = app.emit("transfer-state", TransferStateEvent {
+        task_id: task_id.clone(),
+        state: "cancelled".to_string(),
+    });
+    Ok(())
+}
+
+/// Pause a running transfer. The transfer coroutine will block until resumed.
+#[tauri::command]
+pub fn pause_transfer(app: tauri::AppHandle, task_id: String) -> Result<(), String> {
+    task_registry::pause_task(&task_id)?;
+    let _ = app.emit("transfer-state", TransferStateEvent {
+        task_id: task_id.clone(),
+        state: "paused".to_string(),
+    });
+    Ok(())
+}
+
+/// Resume a paused transfer. The transfer coroutine will continue from where it left off.
+#[tauri::command]
+pub fn resume_transfer(app: tauri::AppHandle, task_id: String) -> Result<(), String> {
+    task_registry::resume_task(&task_id)?;
+    let _ = app.emit("transfer-state", TransferStateEvent {
+        task_id: task_id.clone(),
+        state: "running".to_string(),
+    });
+    Ok(())
 }
 
 #[tauri::command]
