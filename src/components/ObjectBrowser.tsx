@@ -1116,8 +1116,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
           onClick={() => {
             const p = currentPage - 1;
             setCurrentPage(p);
-            if (isSearchMode) loadSearch(searchText, p, true);
-            else load(prefix, p, undefined, true);
+            if (isSearchMode) loadSearch(searchText, p);
+            else load(prefix, p);
           }}
         />
         <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
@@ -1130,8 +1130,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
           onClick={() => {
             const p = currentPage + 1;
             setCurrentPage(p);
-            if (isSearchMode) loadSearch(searchText, p, true);
-            else load(prefix, p, undefined, true);
+            if (isSearchMode) loadSearch(searchText, p);
+            else load(prefix, p);
           }}
         />
         {!hasNextPage && currentPage * pageSize + items.length >= MAX_TOTAL && (
@@ -1147,8 +1147,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             setPageSize(size);
             setCurrentPage(0);
             pageTokensRef.current = [undefined];
-            if (isSearchMode) loadSearch(searchText, 0, true);
-            else load(prefix, 0, size, true);
+            if (isSearchMode) loadSearch(searchText, 0);
+            else load(prefix, 0, size);
           }}
           options={[
             { label: "10", value: 10 },
