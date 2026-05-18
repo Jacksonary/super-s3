@@ -32,15 +32,13 @@ impl Intercept for ContentMd5Interceptor {
         _cfg: &mut ConfigBag,
     ) -> Result<(), aws_smithy_runtime_api::box_error::BoxError> {
         let request = context.request_mut();
-        // Only act if the SDK attached a CRC32 checksum (e.g. DeleteObjects)
-        if request.headers().get("x-amz-checksum-crc32").is_some() {
-            request.headers_mut().remove("x-amz-checksum-crc32");
-            if let Some(body_bytes) = request.body().bytes() {
+        // Qiniu requires Content-MD5 for operations like DeleteObjects.
+        // Always add it when there's a request body.
+        if let Some(body_bytes) = request.body().bytes() {
+            if !body_bytes.is_empty() {
                 let digest = Md5::digest(body_bytes);
                 let md5_b64 = base64::engine::general_purpose::STANDARD.encode(digest);
-                request
-                    .headers_mut()
-                    .insert("Content-MD5", md5_b64);
+                request.headers_mut().insert("Content-MD5", md5_b64);
             }
         }
         Ok(())
