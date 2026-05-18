@@ -19,16 +19,21 @@ import {
   SwapOutlined,
   FolderOpenOutlined,
   ThunderboltOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api } from "../api";
-import type { UploadTask, DownloadTask, HistoryEntry } from "../types";
+import type { UploadTask, DownloadTask, HistoryEntry, TransferStatus } from "../types";
 
 dayjs.extend(relativeTime);
 
 const { Text } = Typography;
+
+const isFinished = (s: TransferStatus) => s === "done" || s === "error" || s === "cancelled";
+const isInactive = (s: TransferStatus) => s === "paused" || s === "pending";
 
 interface Props {
   uploads: UploadTask[];
@@ -36,6 +41,9 @@ interface Props {
   onDismissUpload: (id: string) => void;
   onDismissDownload: (id: string) => void;
   onClearAll: () => void;
+  onPause: (taskId: string) => void;
+  onResume: (taskId: string) => void;
+  onCancel: (taskId: string) => void;
 }
 
 type Tab = "active" | "uploads" | "downloads";
@@ -46,6 +54,9 @@ export function TransferPanel({
   onDismissUpload,
   onDismissDownload,
   onClearAll,
+  onPause,
+  onResume,
+  onCancel,
 }: Props) {
   const { token } = theme.useToken();
   const [expanded, setExpanded] = useState(false);
@@ -53,7 +64,8 @@ export function TransferPanel({
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
 
-  const activeCount = uploads.filter((u) => !u.done).length + downloads.filter((d) => !d.done).length;
+  const activeCount = uploads.filter((u) => !isFinished(u.status)).length
+    + downloads.filter((d) => !isFinished(d.status)).length;
   useEffect(() => {
     if (activeCount > 0) {
       setExpanded(true);
@@ -169,44 +181,23 @@ export function TransferPanel({
             {tab === "active" ? (
               <>
                 {uploads.map((u) => (
-                  <TaskRow
+                  <UploadTaskRow
                     key={u.id}
-                    icon={<UploadOutlined style={{ color: token.colorPrimary, fontSize: 12 }} />}
-                    filename={u.filename}
-                    progress={u.progress}
-                    done={u.done}
-                    error={u.error}
-                    actions={
-                      u.error ? (
-                        <Space size={2}>
-                          {u.retry && (
-                            <Tooltip title="Retry">
-                              <Button size="small" type="text" icon={<ReloadOutlined />} onClick={u.retry} />
-                            </Tooltip>
-                          )}
-                          <Tooltip title="Dismiss">
-                            <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={() => onDismissUpload(u.id)} />
-                          </Tooltip>
-                        </Space>
-                      ) : null
-                    }
+                    task={u}
+                    onDismiss={() => onDismissUpload(u.id)}
+                    onPause={() => onPause(u.id)}
+                    onResume={() => onResume(u.id)}
+                    onCancel={() => onCancel(u.id)}
                   />
                 ))}
                 {downloads.map((d) => (
-                  <TaskRow
+                  <DownloadTaskRow
                     key={d.id}
-                    icon={<DownloadOutlined style={{ color: token.colorSuccess, fontSize: 12 }} />}
-                    filename={d.filename}
-                    progress={d.progress}
-                    done={d.done}
-                    error={d.error}
-                    actions={
-                      d.done ? (
-                        <Tooltip title="Dismiss">
-                          <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={() => onDismissDownload(d.id)} />
-                        </Tooltip>
-                      ) : null
-                    }
+                    task={d}
+                    onDismiss={() => onDismissDownload(d.id)}
+                    onPause={() => onPause(d.id)}
+                    onResume={() => onResume(d.id)}
+                    onCancel={() => onCancel(d.id)}
                   />
                 ))}
                 {totalCount === 0 && (
@@ -253,45 +244,189 @@ export function TransferPanel({
   );
 }
 
-// ─── TaskRow (active transfers) ─────────────────────────────────────────────
+// ─── UploadTaskRow ──────────────────────────────────────────────────────────
 
-interface TaskRowProps {
-  icon: React.ReactNode;
-  filename: string;
-  progress: number;
-  done: boolean;
-  error?: string;
-  actions?: React.ReactNode;
-}
-
-function TaskRow({ icon, filename, progress, done, error, actions }: TaskRowProps) {
+function UploadTaskRow({
+  task,
+  onDismiss,
+  onPause,
+  onResume,
+  onCancel,
+}: {
+  task: UploadTask;
+  onDismiss: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onCancel: () => void;
+}) {
   const { token } = theme.useToken();
+
+  const progressStatus = task.status === "error" || task.status === "cancelled"
+    ? "exception"
+    : task.status === "done"
+    ? "success"
+    : task.status === "paused"
+    ? "normal"
+    : "active";
+
+  const errorMsg = task.error ?? (task.status === "cancelled" ? "Cancelled" : undefined);
+
+  const actions = task.status === "running" ? (
+    <Space size={2}>
+      <Tooltip title="Pause">
+        <Button size="small" type="text" icon={<PauseCircleOutlined />} onClick={onPause} />
+      </Tooltip>
+      <Tooltip title="Cancel">
+        <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
+      </Tooltip>
+    </Space>
+  ) : task.status === "paused" ? (
+    <Space size={2}>
+      <Tooltip title="Resume">
+        <Button size="small" type="text" icon={<PlayCircleOutlined />} onClick={onResume} />
+      </Tooltip>
+      <Tooltip title="Cancel">
+        <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
+      </Tooltip>
+    </Space>
+  ) : (task.status === "error" || task.status === "cancelled") ? (
+    <Space size={2}>
+      {task.retry && (
+        <Tooltip title="Retry">
+          <Button size="small" type="text" icon={<ReloadOutlined />} onClick={task.retry} />
+        </Tooltip>
+      )}
+      <Tooltip title="Dismiss">
+        <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onDismiss} />
+      </Tooltip>
+    </Space>
+  ) : task.status === "done" ? null : null;
+
   return (
     <div className="transfer-task-row">
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-        {icon}
+        <UploadOutlined style={{ color: token.colorPrimary, fontSize: 12 }} />
         <Text
           style={{
             fontSize: 12, flex: 1, overflow: "hidden",
             textOverflow: "ellipsis", whiteSpace: "nowrap", color: token.colorText,
           }}
-          title={filename}
+          title={task.filename}
         >
-          {filename}
+          {task.filename}
         </Text>
         {actions}
       </div>
       <Progress
-        percent={progress}
+        percent={task.progress}
         size="small"
-        status={error ? "exception" : done ? "success" : "active"}
+        status={progressStatus}
         format={() =>
-          error ? (
+          errorMsg ? (
             <Text type="danger" style={{ fontSize: 10 }}>
-              {error.length > 30 ? error.slice(0, 30) + "…" : error}
+              {errorMsg.length > 30 ? errorMsg.slice(0, 30) + "…" : errorMsg}
             </Text>
+          ) : task.status === "paused" ? (
+            <Text type="secondary" style={{ fontSize: 10 }}>Paused</Text>
           ) : (
-            `${progress}%`
+            `${task.progress}%`
+          )
+        }
+      />
+    </div>
+  );
+}
+
+// ─── DownloadTaskRow ────────────────────────────────────────────────────────
+
+function DownloadTaskRow({
+  task,
+  onDismiss,
+  onPause,
+  onResume,
+  onCancel,
+}: {
+  task: DownloadTask;
+  onDismiss: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onCancel: () => void;
+}) {
+  const { token } = theme.useToken();
+
+  const progressStatus = task.status === "error" || task.status === "cancelled"
+    ? "exception"
+    : task.status === "done"
+    ? "success"
+    : task.status === "paused"
+    ? "normal"
+    : "active";
+
+  const errorMsg = task.error ?? (task.status === "cancelled" ? "Cancelled" : undefined);
+
+  const actions = task.status === "running" ? (
+    <Space size={2}>
+      <Tooltip title="Pause">
+        <Button size="small" type="text" icon={<PauseCircleOutlined />} onClick={onPause} />
+      </Tooltip>
+      <Tooltip title="Cancel">
+        <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
+      </Tooltip>
+    </Space>
+  ) : task.status === "paused" ? (
+    <Space size={2}>
+      <Tooltip title="Resume">
+        <Button size="small" type="text" icon={<PlayCircleOutlined />} onClick={onResume} />
+      </Tooltip>
+      <Tooltip title="Cancel">
+        <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
+      </Tooltip>
+    </Space>
+  ) : (task.status === "error" || task.status === "cancelled") ? (
+    <Space size={2}>
+      {task.retry && (
+        <Tooltip title="Retry">
+          <Button size="small" type="text" icon={<ReloadOutlined />} onClick={task.retry} />
+        </Tooltip>
+      )}
+      <Tooltip title="Dismiss">
+        <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onDismiss} />
+      </Tooltip>
+    </Space>
+  ) : task.status === "done" ? (
+    <Tooltip title="Dismiss">
+      <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onDismiss} />
+    </Tooltip>
+  ) : null;
+
+  return (
+    <div className="transfer-task-row">
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+        <DownloadOutlined style={{ color: token.colorSuccess, fontSize: 12 }} />
+        <Text
+          style={{
+            fontSize: 12, flex: 1, overflow: "hidden",
+            textOverflow: "ellipsis", whiteSpace: "nowrap", color: token.colorText,
+          }}
+          title={task.filename}
+        >
+          {task.filename}
+        </Text>
+        {actions}
+      </div>
+      <Progress
+        percent={task.progress}
+        size="small"
+        status={progressStatus}
+        format={() =>
+          errorMsg ? (
+            <Text type="danger" style={{ fontSize: 10 }}>
+              {errorMsg.length > 30 ? errorMsg.slice(0, 30) + "…" : errorMsg}
+            </Text>
+          ) : task.status === "paused" ? (
+            <Text type="secondary" style={{ fontSize: 10 }}>Paused</Text>
+          ) : (
+            `${task.progress}%`
           )
         }
       />

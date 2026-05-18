@@ -72,7 +72,7 @@ export interface UploadTask {
   id: string;
   filename: string;
   progress: number;
-  done: boolean;
+  status: TransferStatus;
   error?: string;
   filePath?: string;
   relPath?: string;
@@ -85,9 +85,14 @@ export interface DownloadTask {
   id: string;
   filename: string;
   progress: number;
-  done: boolean;
+  status: TransferStatus;
   error?: string;
+  savePath?: string;
+  key?: string;
+  retry?: () => void;
 }
+
+export type TransferStatus = "pending" | "running" | "paused" | "cancelled" | "done" | "error";
 
 export interface UploadEntry {
   local_path: string;

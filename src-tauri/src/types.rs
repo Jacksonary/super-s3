@@ -171,3 +171,10 @@ pub struct DownloadProgress {
     pub failed: u32,
     pub current_key: String,
 }
+
+/// Event emitted when a transfer changes state (pause / resume / cancel / error).
+#[derive(Debug, Clone, Serialize)]
+pub struct TransferStateEvent {
+    pub task_id: String,
+    pub state: String,
+}

@@ -5116,6 +5116,7 @@ dependencies = [
  "tauri-plugin-updater",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "urlencoding",
  "uuid",
 ]

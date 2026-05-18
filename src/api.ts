@@ -199,6 +199,20 @@ export const api = {
     });
   },
 
+  // ─── Transfer control ──────────────────────────────────────────────────
+
+  cancelTransfer(taskId: string): Promise<void> {
+    return invoke("cancel_transfer", { taskId });
+  },
+
+  pauseTransfer(taskId: string): Promise<void> {
+    return invoke("pause_transfer", { taskId });
+  },
+
+  resumeTransfer(taskId: string): Promise<void> {
+    return invoke("resume_transfer", { taskId });
+  },
+
   rename(
     accountId: number,
     bucket: string,
