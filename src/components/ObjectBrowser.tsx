@@ -103,6 +103,9 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
   const pageSizeRef = useRef(10);
   const pageTokensRef = useRef<(string | undefined)[]>([undefined]);
 
+  // upload dropdown
+  const [uploadDropdownOpen, setUploadDropdownOpen] = useState(false);
+
   // upload/download state is managed by App.tsx and passed via props
 
   // folder modal
@@ -187,10 +190,10 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
   // ─── Load objects ──────────────────────────────────────────────────────
 
   const load = useCallback(
-    async (p: string, page = 0, pSize?: number) => {
+    async (p: string, page = 0, pSize?: number, clearItems = false) => {
       const size = pSize ?? pageSizeRef.current;
       setLoading(true);
-      setItems([]);
+      if (clearItems) setItems([]);
       setSelectedRowKeys([]);
       try {
         const res = await api.listObjects(accountId, bucket, {
@@ -220,7 +223,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
     setSearchText("");
     setCurrentPage(0);
     pageTokensRef.current = [undefined];
-    load("");
+    load("", 0, undefined, true);
   }, [accountId, bucket, load]);
 
   // ─── Breadcrumb navigation ─────────────────────────────────────────────
@@ -247,16 +250,16 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
     setPrefix(p);
     setCurrentPage(0);
     pageTokensRef.current = [undefined];
-    load(p, 0);
+    load(p, 0, undefined, true);
   };
 
   // ─── Search ────────────────────────────────────────────────────────────
 
   const loadSearch = useCallback(
-    async (q: string, page = 0) => {
+    async (q: string, page = 0, clearItems = false) => {
       const size = pageSizeRef.current;
       setLoading(true);
-      setItems([]);
+      if (clearItems) setItems([]);
       setSelectedRowKeys([]);
       try {
         const res = await api.search(
@@ -290,7 +293,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
     setIsSearchMode(true);
     setCurrentPage(0);
     pageTokensRef.current = [undefined];
-    loadSearch(val, 0);
+    loadSearch(val, 0, true);
   };
 
   // ─── Collect keys (parallel per folder) ─────────────────────────────────
@@ -685,6 +688,11 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             e.preventDefault();
             handleUploadButton();
             return;
+          case "n":
+            if (inInput) return;
+            e.preventDefault();
+            setFolderModal(true);
+            return;
           case "r":
             if (inInput) return;
             e.preventDefault();
@@ -693,6 +701,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             load(prefix, 0);
             return;
         }
+        return;
       }
 
       // Delete — works even when checkbox is focused (not a text input)
@@ -713,9 +722,6 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
       // Non-ctrl shortcuts — skip if in input
       if (inInput) return;
       switch (e.key) {
-        case "n":
-          setFolderModal(true);
-          break;
         case "Backspace":
           if (prefix) {
             const parent = prefix.replace(/[^/]+\/$/, "");
@@ -989,14 +995,15 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
               ],
             }}
             trigger={["click"]}
+            onOpenChange={setUploadDropdownOpen}
           >
-            <Tooltip title="Ctrl+U">
+            <Tooltip title="Ctrl+U" open={uploadDropdownOpen ? false : undefined}>
               <Button icon={<UploadOutlined />}>
                 Upload <DownOutlined style={{ fontSize: 10 }} />
               </Button>
             </Tooltip>
           </Dropdown>
-          <Tooltip title="New folder (N)">
+          <Tooltip title="New folder (Ctrl+N)">
             <Button
               icon={<FolderAddOutlined />}
               onClick={() => setFolderModal(true)}
@@ -1112,8 +1119,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
           onClick={() => {
             const p = currentPage - 1;
             setCurrentPage(p);
-            if (isSearchMode) loadSearch(searchText, p);
-            else load(prefix, p);
+            if (isSearchMode) loadSearch(searchText, p, true);
+            else load(prefix, p, undefined, true);
           }}
         />
         <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
@@ -1126,8 +1133,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
           onClick={() => {
             const p = currentPage + 1;
             setCurrentPage(p);
-            if (isSearchMode) loadSearch(searchText, p);
-            else load(prefix, p);
+            if (isSearchMode) loadSearch(searchText, p, true);
+            else load(prefix, p, undefined, true);
           }}
         />
         {!hasNextPage && currentPage * pageSize + items.length >= MAX_TOTAL && (
@@ -1143,8 +1150,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             setPageSize(size);
             setCurrentPage(0);
             pageTokensRef.current = [undefined];
-            if (isSearchMode) loadSearch(searchText, 0);
-            else load(prefix, 0, size);
+            if (isSearchMode) loadSearch(searchText, 0, true);
+            else load(prefix, 0, size, true);
           }}
           options={[
             { label: "10", value: 10 },
@@ -1231,7 +1238,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 16px", fontSize: 13 }}>
           <Tag>Ctrl+F</Tag><span>Focus search</span>
           <Tag>Ctrl+U</Tag><span>Upload files</span>
-          <Tag>N</Tag><span>New folder</span>
+          <Tag>Ctrl+N</Tag><span>New folder</span>
           <Tag>Ctrl+R</Tag><span>Refresh</span>
           <Tag>Delete</Tag><span>Delete selected</span>
           <Tag>Backspace</Tag><span>Go to parent folder</span>
