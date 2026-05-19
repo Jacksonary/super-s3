@@ -806,8 +806,14 @@ pub async fn resume_download(
                 });
             } else {
                 // Truncate partial append so future resume starts from known-good offset.
-                if let Ok(f) = tokio::fs::OpenOptions::new().write(true).open(&part_path).await {
-                    let _ = f.set_len(offset).await;
+                // If truncate fails, remove the .meta file to prevent trusting stale offset.
+                let trunc_ok = if let Ok(f) = tokio::fs::OpenOptions::new().write(true).open(&part_path).await {
+                    f.set_len(offset).await.is_ok()
+                } else {
+                    false
+                };
+                if !trunc_ok {
+                    let _ = tokio::fs::remove_file(&resumable_meta_path(&part_path)).await;
                 }
             }
             Err(e)
