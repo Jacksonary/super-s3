@@ -170,34 +170,67 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
     if (!savePath) return;
     const taskId = `dl-${Date.now()}-${filename}`;
     const size = item.size ?? undefined;
+    const thresholdBytes = transferConfig.multipart_threshold * 1024 * 1024;
+    const isLarge = (size ?? 0) >= thresholdBytes;
+    const doResume = async () => {
+      const dlTaskId = `dl-resume-${Date.now()}-${filename}`;
+      setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey }]);
+      try {
+        await api.resumeDownload(accountId, bucket, currentKey, savePath, dlTaskId);
+        setDownloads((prev) =>
+          prev.map((d) => d.id === dlTaskId ? { ...d, progress: 100, status: "done" as const } : d)
+        );
+        api.appendHistory([{
+          type: "download", filename, key: currentKey, bucket,
+          account_name: String(accountId), size: item?.size ?? null,
+          status: "done", error: null, extra: savePath, timestamp: Date.now(),
+        }]).catch(() => {});
+        setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId)), 2500);
+      } catch (re: unknown) {
+        const isC = String(re).includes("Transfer cancelled");
+        setDownloads((prev) =>
+          prev.map((d) => d.id === dlTaskId
+            ? { ...d, error: isC ? undefined : String(re), status: isC ? "cancelled" as const : "error" as const }
+            : d)
+        );
+        if (isC) {
+          setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId)), 2500);
+        }
+      }
+    };
+    const doFull = async () => {
+      const dlTaskId = `dl-${Date.now()}-${filename}`;
+      setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey }]);
+      try {
+        await api.download(accountId, bucket, currentKey, savePath, dlTaskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
+        setDownloads((prev) =>
+          prev.map((d) => d.id === dlTaskId ? { ...d, progress: 100, status: "done" as const } : d)
+        );
+        api.appendHistory([{
+          type: "download", filename, key: currentKey, bucket,
+          account_name: String(accountId), size: item?.size ?? null,
+          status: "done", error: null, extra: savePath, timestamp: Date.now(),
+        }]).catch(() => {});
+        setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId)), 2500);
+      } catch (re: unknown) {
+        const isC = String(re).includes("Transfer cancelled");
+        setDownloads((prev) =>
+          prev.map((d) => d.id === dlTaskId
+            ? { ...d, error: isC ? undefined : String(re), status: isC ? "cancelled" as const : "error" as const }
+            : d)
+        );
+        if (isC) {
+          setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId)), 2500);
+        }
+      }
+    };
     const retry = () => {
       setDownloads((prev) => prev.filter((d) => d.id !== taskId));
-      (async () => {
-        const dlTaskId = `dl-${Date.now()}-${filename}`;
-        setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey }]);
-        try {
-          await api.download(accountId, bucket, currentKey, savePath, dlTaskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
-          setDownloads((prev) =>
-            prev.map((d) => d.id === dlTaskId ? { ...d, progress: 100, status: "done" as const } : d)
-          );
-          api.appendHistory([{
-            type: "download", filename, key: currentKey, bucket,
-            account_name: String(accountId), size: item?.size ?? null,
-            status: "done", error: null, extra: savePath, timestamp: Date.now(),
-          }]).catch(() => {});
-          setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId)), 2500);
-        } catch (re: unknown) {
-          const isC = String(re).includes("Transfer cancelled");
-          setDownloads((prev) =>
-            prev.map((d) => d.id === dlTaskId
-              ? { ...d, error: isC ? undefined : String(re), status: isC ? "cancelled" as const : "error" as const }
-              : d)
-          );
-          if (isC) {
-            setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId)), 2500);
-          }
-        }
-      })();
+      if (isLarge) {
+        doResume();
+      } else {
+        doFull();
+      }
     };
     setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key: currentKey, retry }]);
     try {

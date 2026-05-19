@@ -368,15 +368,23 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
 
   // ─── Download (native file dialog) ────────────────────────────────────
 
-  const handleDownload = async (key: string, fileSize?: number) => {
+  const handleDownload = async (key: string, fileSize?: number, existingSavePath?: string) => {
     const filename = key.split("/").pop() || "file";
     const size = fileSize ?? items.find((i) => i.key === key)?.size ?? undefined;
-    const savePath = await save({ defaultPath: filename, title: "Save file" });
+    // If retrying, reuse the original savePath; otherwise show save dialog.
+    const savePath = existingSavePath ?? await save({ defaultPath: filename, title: "Save file" });
     if (!savePath) return;
     const taskId = `dl-${Date.now()}-${filename}`;
+    const thresholdBytes = transferConfig.multipart_threshold * 1024 * 1024;
+    const isLarge = (size ?? 0) >= thresholdBytes;
     const retry = () => {
       setDownloads((prev) => prev.filter((d) => d.id !== taskId));
-      handleDownload(key, size);
+      // For large files, resume from .part; for small files, re-download.
+      if (isLarge) {
+        handleResumeDownload(key, size, savePath);
+      } else {
+        handleDownload(key, size, savePath);
+      }
     };
     setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key, retry }]);
     try {
@@ -398,6 +406,33 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 2500);
       }
       // Error tasks stay in Active for retry, no auto-dismiss.
+    }
+  };
+
+  const handleResumeDownload = async (key: string, fileSize?: number, existingSavePath?: string) => {
+    const filename = key.split("/").pop() || "file";
+    const size = fileSize ?? items.find((i) => i.key === key)?.size ?? undefined;
+    const savePath = existingSavePath;
+    if (!savePath) return;
+    const taskId = `dl-resume-${Date.now()}-${filename}`;
+    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key }]);
+    try {
+      await api.resumeDownload(accountId, bucket, key, savePath, taskId);
+      setDownloads((prev) =>
+        prev.map((d) => d.id === taskId ? { ...d, progress: 100, status: "done" as const } : d)
+      );
+      recordHistory("download", filename, key, "done", { extra: savePath });
+      setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 2500);
+    } catch (e: unknown) {
+      const isCancelled = String(e).includes("Transfer cancelled");
+      setDownloads((prev) =>
+        prev.map((d) => d.id === taskId
+          ? { ...d, error: isCancelled ? undefined : String(e), status: isCancelled ? "cancelled" as const : "error" as const }
+          : d)
+      );
+      if (isCancelled) {
+        setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 2500);
+      }
     }
   };
 

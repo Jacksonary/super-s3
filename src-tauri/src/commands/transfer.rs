@@ -22,8 +22,6 @@ fn emit_progress(app: &tauri::AppHandle, event: &str, task_id: &Option<String>, 
 /// e.g. `photo.jpg` → `photo.jpg.a3f1b2c0.part`
 fn tmp_path_for(dest: &std::path::Path) -> std::path::PathBuf {
     use std::time::{SystemTime, UNIX_EPOCH};
-    // Use total nanos since epoch (not subsec_nanos) to minimise collision risk
-    // between concurrent downloads targeting the same directory.
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -32,6 +30,16 @@ fn tmp_path_for(dest: &std::path::Path) -> std::path::PathBuf {
         .file_name()
         .map(|n| format!("{}.{nanos:016x}.part", n.to_string_lossy()))
         .unwrap_or_else(|| format!("download.{nanos:016x}.part"));
+    dest.parent().unwrap_or(dest).join(fname)
+}
+
+/// Returns a deterministic partial file path for resumable downloads.
+/// e.g. `photo.jpg` → `photo.jpg.part`
+fn resumable_part_path(dest: &std::path::Path) -> std::path::PathBuf {
+    let fname = dest
+        .file_name()
+        .map(|n| format!("{}.part", n.to_string_lossy()))
+        .unwrap_or_else(|| "download.part".to_string());
     dest.parent().unwrap_or(dest).join(fname)
 }
 
@@ -76,7 +84,8 @@ pub async fn download_object(
     let guard = task_registry::register_task(task_id.clone());
 
     let save = std::path::Path::new(&save_path);
-    let tmp_path = tmp_path_for(save);
+    // Use deterministic .part path so resume can find it on retry.
+    let tmp_path = resumable_part_path(save);
 
     let result = download_inner(
         &app, account_idx, &bucket, &key, &tmp_path, &task_id,
@@ -95,8 +104,10 @@ pub async fn download_object(
             Ok(serde_json::json!({ "success": true }))
         }
         Err(e) => {
-            let _ = tokio::fs::remove_file(&tmp_path).await;
+            // Keep .part file on error so retry can resume from where it left off.
+            // Only delete on cancellation (user explicitly gave up).
             if is_cancelled {
+                let _ = tokio::fs::remove_file(&tmp_path).await;
                 let _ = app.emit("transfer-state", TransferStateEvent {
                     task_id: task_id.clone().unwrap_or_default(),
                     state: "cancelled".to_string(),
@@ -598,6 +609,146 @@ pub fn resume_transfer(app: tauri::AppHandle, task_id: String) -> Result<(), Str
         state: "running".to_string(),
     });
     Ok(())
+}
+
+/// Resume a failed download by checking the existing .part file and
+/// downloading only the remaining bytes via a single Range GET.
+/// This avoids re-downloading data that was already received.
+#[tauri::command]
+pub async fn resume_download(
+    app: tauri::AppHandle,
+    account_idx: usize,
+    bucket: String,
+    key: String,
+    save_path: String,
+    task_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let guard = task_registry::register_task(task_id.clone());
+    let save = std::path::Path::new(&save_path);
+    let part_path = resumable_part_path(save);
+
+    // Probe the object size.
+    let client = s3client::get_client(account_idx)?;
+    let head = client
+        .head_object()
+        .bucket(&bucket)
+        .key(&key)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to stat object: {e}"))?;
+    let total = head.content_length().unwrap_or(0) as u64;
+
+    // Check how much we already have.
+    let existing = tokio::fs::metadata(&part_path).await;
+    let offset = match existing {
+        Ok(meta) => meta.len(),
+        Err(_) => 0,
+    };
+
+    if offset >= total && total > 0 {
+        // Already fully downloaded, just rename.
+        tokio::fs::rename(&part_path, save)
+            .await
+            .map_err(|e| format!("Failed to finalise download: {e}"))?;
+        emit_progress(&app, "download-single-progress", &task_id, 100);
+        return Ok(serde_json::json!({ "success": true, "resumed_from": offset }));
+    }
+
+    if offset == 0 {
+        // No partial data, fall through to fresh download.
+        let result = download_inner(
+            &app, account_idx, &bucket, &key, &part_path, &task_id,
+            None, None, None, &guard.cancel_token, &guard.pause_rx,
+        )
+        .await;
+        if result.is_ok() {
+            tokio::fs::rename(&part_path, save)
+                .await
+                .map_err(|e| format!("Failed to finalise download: {e}"))?;
+        } else {
+            // Keep .part on error for future resume.
+        }
+        return result.map(|()| serde_json::json!({ "success": true, "resumed_from": 0 }));
+    }
+
+    // Partial data exists — resume with a Range GET for the remaining bytes.
+    emit_progress(&app, "download-single-progress", &task_id, 0);
+    let end = total.saturating_sub(1);
+    let range_str = format!("bytes={offset}-{end}");
+
+    let result: Result<(), String> = async {
+        // Cancel-aware streaming of remaining bytes, appended to existing .part.
+        let resp = client
+            .get_object()
+            .bucket(&bucket)
+            .key(&key)
+            .range(&range_str)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to resume download: {e}"))?;
+
+        let mut body = resp.body;
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(&part_path)
+            .await
+            .map_err(|e| format!("Failed to open partial file: {e}"))?;
+
+        let mut received: u64 = offset;
+        let mut last_pct: u8 = 0;
+
+        loop {
+            tokio::select! {
+                _ = guard.cancel_token.cancelled() => {
+                    return Err("Transfer cancelled".to_string());
+                }
+                chunk = body.next() => {
+                    let Some(chunk) = chunk else { break; };
+                    let bytes = chunk.map_err(|e| format!("Failed to read body: {e}"))?;
+                    file.write_all(&bytes)
+                        .await
+                        .map_err(|e| format!("Failed to write file: {e}"))?;
+                    received += bytes.len() as u64;
+                    if total > 0 {
+                        let pct = (((received as u128 * 100) / total as u128).min(99)) as u8;
+                        if pct > last_pct {
+                            last_pct = pct;
+                            emit_progress(&app, "download-single-progress", &task_id, pct);
+                        }
+                    }
+                }
+            }
+        }
+
+        file.flush()
+            .await
+            .map_err(|e| format!("Failed to flush file: {e}"))?;
+        Ok(())
+    }
+    .await;
+
+    match result {
+        Ok(()) => {
+            tokio::fs::rename(&part_path, save)
+                .await
+                .map_err(|e| format!("Failed to finalise download: {e}"))?;
+            emit_progress(&app, "download-single-progress", &task_id, 100);
+            Ok(serde_json::json!({ "success": true, "resumed_from": offset }))
+        }
+        Err(e) => {
+            // Keep .part on error for future resume.
+            if e.contains("Transfer cancelled") {
+                let _ = tokio::fs::remove_file(&part_path).await;
+                let _ = app.emit("transfer-state", TransferStateEvent {
+                    task_id: task_id.clone().unwrap_or_default(),
+                    state: "cancelled".to_string(),
+                });
+            }
+            Err(e)
+        }
+    }
+    // `guard` is dropped here → deregisters automatically.
 }
 
 #[tauri::command]
