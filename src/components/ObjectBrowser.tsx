@@ -415,9 +415,13 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
     const savePath = existingSavePath;
     if (!savePath) return;
     const taskId = `dl-resume-${Date.now()}-${filename}`;
-    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key }]);
+    const retry = () => {
+      setDownloads((prev) => prev.filter((d) => d.id !== taskId));
+      handleResumeDownload(key, size, savePath);
+    };
+    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key, retry }]);
     try {
-      await api.resumeDownload(accountId, bucket, key, savePath, taskId);
+      await api.resumeDownload(accountId, bucket, key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
       setDownloads((prev) =>
         prev.map((d) => d.id === taskId ? { ...d, progress: 100, status: "done" as const } : d)
       );

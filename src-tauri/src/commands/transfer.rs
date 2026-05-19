@@ -622,6 +622,9 @@ pub async fn resume_download(
     key: String,
     save_path: String,
     task_id: Option<String>,
+    connections: Option<usize>,
+    part_size_mb: Option<u64>,
+    multipart_threshold_mb: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let guard = task_registry::register_task(task_id.clone());
     let save = std::path::Path::new(&save_path);
@@ -654,11 +657,27 @@ pub async fn resume_download(
         return Ok(serde_json::json!({ "success": true, "resumed_from": offset }));
     }
 
+    if offset > total {
+        // S3 object was replaced with a smaller one. Remove stale .part and re-download.
+        let _ = tokio::fs::remove_file(&part_path).await;
+        let result = download_inner(
+            &app, account_idx, &bucket, &key, &part_path, &task_id,
+            connections, part_size_mb, multipart_threshold_mb, &guard.cancel_token, &guard.pause_rx,
+        )
+        .await;
+        if result.is_ok() {
+            tokio::fs::rename(&part_path, save)
+                .await
+                .map_err(|e| format!("Failed to finalise download: {e}"))?;
+        }
+        return result.map(|()| serde_json::json!({ "success": true, "resumed_from": 0 }));
+    }
+
     if offset == 0 {
         // No partial data, fall through to fresh download.
         let result = download_inner(
             &app, account_idx, &bucket, &key, &part_path, &task_id,
-            None, None, None, &guard.cancel_token, &guard.pause_rx,
+            connections, part_size_mb, multipart_threshold_mb, &guard.cancel_token, &guard.pause_rx,
         )
         .await;
         if result.is_ok() {
