@@ -268,7 +268,6 @@ function UploadTaskRow({
   multipartThresholdMb: number;
 }) {
   const { token } = theme.useToken();
-  const [retrying, setRetrying] = useState(false);
   const thresholdBytes = multipartThresholdMb * 1024 * 1024;
   // When size is unknown, conservatively hide pause button (may be a small file).
   const isSmall = task.size == null || task.size < thresholdBytes;
@@ -312,11 +311,7 @@ function UploadTaskRow({
       {task.retry && (
         <Tooltip title="Retry">
           <Button size="small" type="text" icon={<ReloadOutlined />}
-            loading={retrying}
-            onClick={() => {
-              setRetrying(true);
-              task.retry?.();
-            }}
+            onClick={() => task.retry?.()}
           />
         </Tooltip>
       )}
@@ -383,7 +378,6 @@ function DownloadTaskRow({
   multipartThresholdMb: number;
 }) {
   const { token } = theme.useToken();
-  const [retrying, setRetrying] = useState(false);
   const thresholdBytes = multipartThresholdMb * 1024 * 1024;
   // When size is unknown, conservatively hide pause button (may be a small file).
   const isSmall = task.size == null || task.size < thresholdBytes;
@@ -427,11 +421,7 @@ function DownloadTaskRow({
       {task.retry && (
         <Tooltip title="Retry">
           <Button size="small" type="text" icon={<ReloadOutlined />}
-            loading={retrying}
-            onClick={() => {
-              setRetrying(true);
-              task.retry?.();
-            }}
+            onClick={() => task.retry?.()}
           />
         </Tooltip>
       )}

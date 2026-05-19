@@ -62,6 +62,7 @@ pub fn run() {
             commands::transfer::cancel_transfer,
             commands::transfer::pause_transfer,
             commands::transfer::resume_transfer,
+            commands::transfer::resume_download,
             // Update
             commands::update::check_update,
             // Metadata

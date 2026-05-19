@@ -109,6 +109,23 @@ export const api = {
     });
   },
 
+  /** Resume a failed/partial download using existing .part file. */
+  resumeDownload(
+    accountId: number,
+    bucket: string,
+    key: string,
+    savePath: string,
+    taskId?: string
+  ): Promise<{ success: boolean; resumed_from?: number }> {
+    return invoke("resume_download", {
+      accountIdx: accountId,
+      bucket,
+      key,
+      savePath,
+      taskId: taskId ?? null,
+    });
+  },
+
   presign(
     accountId: number,
     bucket: string,
