@@ -32,7 +32,9 @@ dayjs.extend(relativeTime);
 
 const { Text } = Typography;
 
-const isFinished = (s: TransferStatus) => s === "done" || s === "error" || s === "cancelled";
+const isFinished = (s: TransferStatus) => s === "done";
+const isActive = (s: TransferStatus) =>
+  s === "running" || s === "paused" || s === "pending" || s === "error" || s === "cancelled";
 const isInactive = (s: TransferStatus) => s === "paused" || s === "pending";
 
 interface Props {
@@ -64,8 +66,8 @@ export function TransferPanel({
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
 
-  const activeCount = uploads.filter((u) => !isFinished(u.status)).length
-    + downloads.filter((d) => !isFinished(d.status)).length;
+  const activeCount = uploads.filter((u) => isActive(u.status)).length
+    + downloads.filter((d) => isActive(d.status)).length;
   useEffect(() => {
     if (activeCount > 0) {
       setExpanded(true);

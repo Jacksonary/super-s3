@@ -392,10 +392,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
           ? { ...d, error: isCancelled ? undefined : String(e), status: isCancelled ? "cancelled" as const : "error" as const }
           : d)
       );
-      if (!isCancelled) {
-        recordHistory("download", filename, key, "error", { error: String(e), extra: savePath });
-      }
-      setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 5000);
+      // Don't auto-dismiss error/cancelled — user can retry or dismiss in Active tab.
+      // Don't record to history either — they belong in Active, not Downloads.
     }
   };
 
@@ -443,12 +441,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
                 : u
             )
           );
-          if (!isCancelled) {
-            recordHistory("upload", filename, key, "error", { error: String(e) });
-          }
-          setTimeout(() => {
-            setUploads((prev) => prev.filter((u) => u.id !== taskId));
-          }, 5000);
+          // Don't auto-dismiss error/cancelled — user can retry or dismiss in Active tab.
+          // Don't record to history either — they belong in Active, not Uploads.
         }
       }
     };

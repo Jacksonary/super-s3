@@ -285,10 +285,15 @@ async fn download_inner(
         let mut received: u64 = 0;
         let mut last_pct: u8 = 0;
 
-        while let Some(chunk) = body.next().await {
-            if cancel_token.is_cancelled() {
-                return Err("Transfer cancelled".to_string());
+        loop {
+            // Check for cancellation or pause before processing next chunk.
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    return Err("Transfer cancelled".to_string());
+                }
+                _ = task_registry::wait_if_paused(pause_rx) => {}
             }
+            let Some(chunk) = body.next().await else { break; };
             let bytes = chunk.map_err(|e| format!("Failed to read body: {e}"))?;
             file.write_all(&bytes)
                 .await
