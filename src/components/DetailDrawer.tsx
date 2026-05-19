@@ -174,9 +174,13 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
     const isLarge = (size ?? 0) >= thresholdBytes;
     const doResume = async () => {
       const dlTaskId = `dl-resume-${Date.now()}-${filename}`;
-      setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey }]);
+      const retry = () => {
+        setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId));
+        doResume();
+      };
+      setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey, retry }]);
       try {
-        await api.resumeDownload(accountId, bucket, currentKey, savePath, dlTaskId);
+        await api.resumeDownload(accountId, bucket, currentKey, savePath, dlTaskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
         setDownloads((prev) =>
           prev.map((d) => d.id === dlTaskId ? { ...d, progress: 100, status: "done" as const } : d)
         );
@@ -200,7 +204,11 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
     };
     const doFull = async () => {
       const dlTaskId = `dl-${Date.now()}-${filename}`;
-      setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey }]);
+      const retry = () => {
+        setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId));
+        doFull();
+      };
+      setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey, retry }]);
       try {
         await api.download(accountId, bucket, currentKey, savePath, dlTaskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
         setDownloads((prev) =>
