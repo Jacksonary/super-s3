@@ -166,22 +166,33 @@ async fn download_inner(
 
         for part_idx in 0..num_parts {
             // Backpressure: drain one completed range before spawning more.
+            // Use select! so cancel/pause is detected immediately even while
+            // waiting for in-flight parts to complete.
             while join_set.len() >= max_concurrent {
-                match join_set.join_next().await {
-                    Some(Ok(Ok(()))) => {
-                        completed_ranges += 1;
-                        let pct = ((completed_ranges * 100) / num_parts).min(99) as u8;
-                        emit_progress(app, "download-single-progress", task_id, pct);
-                    }
-                    Some(Ok(Err(e))) => {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
                         join_set.abort_all();
-                        return Err(e);
+                        return Err("Transfer cancelled".to_string());
                     }
-                    Some(Err(e)) => {
-                        join_set.abort_all();
-                        return Err(format!("Download task panicked: {e}"));
+                    _ = task_registry::wait_if_paused(pause_rx) => {}
+                    result = join_set.join_next() => {
+                        match result {
+                            Some(Ok(Ok(()))) => {
+                                completed_ranges += 1;
+                                let pct = ((completed_ranges * 100) / num_parts).min(99) as u8;
+                                emit_progress(app, "download-single-progress", task_id, pct);
+                            }
+                            Some(Ok(Err(e))) => {
+                                join_set.abort_all();
+                                return Err(e);
+                            }
+                            Some(Err(e)) => {
+                                join_set.abort_all();
+                                return Err(format!("Download task panicked: {e}"));
+                            }
+                            None => break,
+                        }
                     }
-                    None => break,
                 }
             }
 
@@ -401,24 +412,36 @@ pub async fn upload_object(
         loop {
             // Drain one completed part before reading the next chunk when at capacity,
             // so we never hold more than max_parts chunks in memory at once.
+            // Use select! so cancel/pause is detected immediately even while
+            // waiting for in-flight parts to complete.
             while join_set.len() >= max_parts {
-                match join_set.join_next().await {
-                    Some(Ok(Ok((pnum, etag)))) => completed_parts.push((pnum, etag)),
-                    Some(Ok(Err(e))) => {
+                tokio::select! {
+                    _ = guard.cancel_token.cancelled() => {
                         join_set.abort_all();
                         abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
-                        return Err(e);
+                        return Err("Transfer cancelled".to_string());
                     }
-                    Some(Err(e)) => {
-                        join_set.abort_all();
-                        abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
-                        return Err(format!("Part task panicked: {e}"));
+                    _ = task_registry::wait_if_paused(&guard.pause_rx) => {}
+                    result = join_set.join_next() => {
+                        match result {
+                            Some(Ok(Ok((pnum, etag)))) => completed_parts.push((pnum, etag)),
+                            Some(Ok(Err(e))) => {
+                                join_set.abort_all();
+                                abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
+                                return Err(e);
+                            }
+                            Some(Err(e)) => {
+                                join_set.abort_all();
+                                abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
+                                return Err(format!("Part task panicked: {e}"));
+                            }
+                            None => break,
+                        }
+                        let done = completed_parts.len() as u32;
+                        let pct = ((done * 100) / total_parts).min(99) as u8;
+                        emit_progress(&app, "upload-progress", &task_id, pct);
                     }
-                    None => break,
                 }
-                let done = completed_parts.len() as u32;
-                let pct = ((done * 100) / total_parts).min(99) as u8;
-                emit_progress(&app, "upload-progress", &task_id, pct);
             }
 
             // Check for cancellation or pause before reading the next chunk.
