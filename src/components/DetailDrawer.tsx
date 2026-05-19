@@ -169,13 +169,14 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
     const savePath = await save({ defaultPath: filename, title: "Save file" });
     if (!savePath) return;
     const taskId = `dl-${Date.now()}-${filename}`;
+    const size = item.size ?? undefined;
     const retry = () => {
       setDownloads((prev) => prev.filter((d) => d.id !== taskId));
       (async () => {
         const dlTaskId = `dl-${Date.now()}-${filename}`;
-        setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, savePath, key: currentKey }]);
+        setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey }]);
         try {
-          await api.download(accountId, bucket, currentKey, savePath, dlTaskId, transferConfig.download_connections, transferConfig.download_part_size);
+          await api.download(accountId, bucket, currentKey, savePath, dlTaskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
           setDownloads((prev) =>
             prev.map((d) => d.id === dlTaskId ? { ...d, progress: 100, status: "done" as const } : d)
           );
@@ -196,9 +197,9 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
         }
       })();
     };
-    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", savePath, key: currentKey, retry }]);
+    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key: currentKey, retry }]);
     try {
-      await api.download(accountId, bucket, item.key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size);
+      await api.download(accountId, bucket, item.key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
       setDownloads((prev) =>
         prev.map((d) => d.id === taskId ? { ...d, progress: 100, status: "done" as const } : d)
       );

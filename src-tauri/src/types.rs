@@ -14,6 +14,10 @@ pub struct TransferConfig {
     /// Size (MB) of each Range GET chunk for large file downloads. Range 4–64.
     #[serde(default = "default_download_part_size")]
     pub download_part_size: u64,
+    /// File size threshold (MB) for switching to concurrent multipart uploads
+    /// or Range GET downloads. Files below this use single PUT/GET. Options: 8, 16, 32.
+    #[serde(default = "default_multipart_threshold")]
+    pub multipart_threshold: u64,
     /// Concurrent multipart parts for a single large file upload. Range 1–16.
     #[serde(default = "default_upload_part_concurrency")]
     pub upload_part_concurrency: usize,
@@ -25,6 +29,7 @@ pub struct TransferConfig {
 fn default_concurrent_files() -> usize { 5 }
 fn default_download_connections() -> usize { 12 }
 fn default_download_part_size() -> u64 { 8 }
+fn default_multipart_threshold() -> u64 { 16 }
 fn default_upload_part_concurrency() -> usize { 4 }
 fn default_upload_part_size() -> u64 { 16 }
 
@@ -34,6 +39,7 @@ impl Default for TransferConfig {
             concurrent_files: default_concurrent_files(),
             download_connections: default_download_connections(),
             download_part_size: default_download_part_size(),
+            multipart_threshold: default_multipart_threshold(),
             upload_part_concurrency: default_upload_part_concurrency(),
             upload_part_size: default_upload_part_size(),
         }

@@ -64,6 +64,7 @@ export interface TransferConfig {
   concurrent_files: number;
   download_connections: number;
   download_part_size: number;
+  multipart_threshold: number;
   upload_part_concurrency: number;
   upload_part_size: number;
 }
@@ -73,6 +74,7 @@ export interface UploadTask {
   filename: string;
   progress: number;
   status: TransferStatus;
+  size?: number;
   error?: string;
   filePath?: string;
   relPath?: string;
@@ -86,6 +88,7 @@ export interface DownloadTask {
   filename: string;
   progress: number;
   status: TransferStatus;
+  size?: number;
   error?: string;
   savePath?: string;
   key?: string;
