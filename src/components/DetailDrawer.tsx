@@ -222,21 +222,8 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
           ? { ...d, error: isCancelled ? undefined : String(e), status: isCancelled ? "cancelled" as const : "error" as const }
           : d)
       );
-      if (!isCancelled) {
-        api.appendHistory([{
-          type: "download",
-          filename,
-          key: item.key,
-          bucket,
-          account_name: String(accountId),
-          size: item.size ?? null,
-          status: "error",
-          error: String(e),
-          extra: savePath,
-          timestamp: Date.now(),
-        }]).catch(() => {});
-      }
-      setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 5000);
+      // Don't auto-dismiss error/cancelled — user can retry or dismiss in Active tab.
+      // Don't record to history either — they belong in Active, not Downloads.
     }
   };
 

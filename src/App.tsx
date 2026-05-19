@@ -123,11 +123,11 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
   const handleDismissDownload = (id: string) =>
     setDownloads((prev) => prev.filter((d) => d.id !== id));
 
-  const isFinished = (s: TransferStatus) => s === "done" || s === "error" || s === "cancelled";
+  const isDone = (s: TransferStatus) => s === "done";
 
   const handleClearAll = () => {
-    setUploads((prev) => prev.filter((u) => !isFinished(u.status)));
-    setDownloads((prev) => prev.filter((d) => !isFinished(d.status)));
+    setUploads((prev) => prev.filter((u) => !isDone(u.status)));
+    setDownloads((prev) => prev.filter((d) => !isDone(d.status)));
   };
 
   const handlePause = (taskId: string) => api.pauseTransfer(taskId).catch(() => {});
