@@ -268,8 +268,10 @@ function UploadTaskRow({
   multipartThresholdMb: number;
 }) {
   const { token } = theme.useToken();
+  const [retrying, setRetrying] = useState(false);
   const thresholdBytes = multipartThresholdMb * 1024 * 1024;
-  const isSmall = task.size != null && task.size < thresholdBytes;
+  // When size is unknown, conservatively hide pause button (may be a small file).
+  const isSmall = task.size == null || task.size < thresholdBytes;
 
   const progressStatus = task.status === "error" || task.status === "cancelled"
     ? "exception"
@@ -309,7 +311,13 @@ function UploadTaskRow({
     <Space size={2}>
       {task.retry && (
         <Tooltip title="Retry">
-          <Button size="small" type="text" icon={<ReloadOutlined />} onClick={task.retry} />
+          <Button size="small" type="text" icon={<ReloadOutlined />}
+            loading={retrying}
+            onClick={() => {
+              setRetrying(true);
+              task.retry?.();
+            }}
+          />
         </Tooltip>
       )}
       <Tooltip title="Dismiss">
@@ -371,8 +379,10 @@ function DownloadTaskRow({
   multipartThresholdMb: number;
 }) {
   const { token } = theme.useToken();
+  const [retrying, setRetrying] = useState(false);
   const thresholdBytes = multipartThresholdMb * 1024 * 1024;
-  const isSmall = task.size != null && task.size < thresholdBytes;
+  // When size is unknown, conservatively hide pause button (may be a small file).
+  const isSmall = task.size == null || task.size < thresholdBytes;
 
   const progressStatus = task.status === "error" || task.status === "cancelled"
     ? "exception"
@@ -412,7 +422,13 @@ function DownloadTaskRow({
     <Space size={2}>
       {task.retry && (
         <Tooltip title="Retry">
-          <Button size="small" type="text" icon={<ReloadOutlined />} onClick={task.retry} />
+          <Button size="small" type="text" icon={<ReloadOutlined />}
+            loading={retrying}
+            onClick={() => {
+              setRetrying(true);
+              task.retry?.();
+            }}
+          />
         </Tooltip>
       )}
       <Tooltip title="Dismiss">
