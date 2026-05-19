@@ -393,8 +393,11 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
           ? { ...d, error: isCancelled ? undefined : String(e), status: isCancelled ? "cancelled" as const : "error" as const }
           : d)
       );
-      // Don't auto-dismiss error/cancelled — user can retry or dismiss in Active tab.
-      // Don't record to history either — they belong in Active, not Downloads.
+      if (isCancelled) {
+        // Auto-dismiss cancelled after a short delay so user sees feedback.
+        setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 2500);
+      }
+      // Error tasks stay in Active for retry, no auto-dismiss.
     }
   };
 
@@ -444,8 +447,9 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
                 : u
             )
           );
-          // Don't auto-dismiss error/cancelled — user can retry or dismiss in Active tab.
-          // Don't record to history either — they belong in Active, not Uploads.
+          if (isCancelled) {
+            setTimeout(() => setUploads((prev) => prev.filter((u) => u.id !== taskId)), 2500);
+          }
         }
       }
     };

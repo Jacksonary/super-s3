@@ -109,6 +109,13 @@ function AppContent({ isDark, onThemeToggle }: AppContentProps) {
         setDownloads((prev) =>
           prev.map((d) => (d.id === task_id ? { ...d, status } : d))
         );
+        // Auto-dismiss cancelled tasks after a short delay.
+        if (status === "cancelled") {
+          setTimeout(() => {
+            setUploads((prev) => prev.filter((u) => u.id !== task_id));
+            setDownloads((prev) => prev.filter((d) => d.id !== task_id));
+          }, 2500);
+        }
       }
     );
     return () => {

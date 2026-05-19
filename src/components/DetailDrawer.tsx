@@ -193,7 +193,9 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
               ? { ...d, error: isC ? undefined : String(re), status: isC ? "cancelled" as const : "error" as const }
               : d)
           );
-          setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId)), 5000);
+          if (isC) {
+            setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== dlTaskId)), 2500);
+          }
         }
       })();
     };
@@ -223,8 +225,9 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
           ? { ...d, error: isCancelled ? undefined : String(e), status: isCancelled ? "cancelled" as const : "error" as const }
           : d)
       );
-      // Don't auto-dismiss error/cancelled — user can retry or dismiss in Active tab.
-      // Don't record to history either — they belong in Active, not Downloads.
+      if (isCancelled) {
+        setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== taskId)), 2500);
+      }
     }
   };
 
