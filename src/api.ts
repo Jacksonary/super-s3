@@ -94,7 +94,8 @@ export const api = {
     savePath: string,
     taskId?: string,
     connections?: number,
-    partSizeMb?: number
+    partSizeMb?: number,
+    multipartThresholdMb?: number
   ): Promise<{ success: boolean }> {
     return invoke("download_object", {
       accountIdx: accountId,
@@ -104,6 +105,7 @@ export const api = {
       taskId: taskId ?? null,
       connections: connections ?? null,
       partSizeMb: partSizeMb ?? null,
+      multipartThresholdMb: multipartThresholdMb ?? null,
     });
   },
 
@@ -164,6 +166,11 @@ export const api = {
     return invoke("expand_paths", { paths });
   },
 
+  /** Get the size of a local file in bytes. */
+  statFile(path: string): Promise<number> {
+    return invoke("stat_file", { path });
+  },
+
   /** Upload from a local file path (for file dialog picks). */
   uploadObject(
     accountId: number,
@@ -173,7 +180,8 @@ export const api = {
     contentType?: string,
     taskId?: string,
     partConcurrency?: number,
-    partSizeMb?: number
+    partSizeMb?: number,
+    multipartThresholdMb?: number
   ): Promise<{ success: boolean; key: string; size: number }> {
     return invoke("upload_object", {
       accountIdx: accountId,
@@ -184,6 +192,7 @@ export const api = {
       taskId: taskId ?? null,
       partConcurrency: partConcurrency ?? null,
       partSizeMb: partSizeMb ?? null,
+      multipartThresholdMb: multipartThresholdMb ?? null,
     });
   },
 

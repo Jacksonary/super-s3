@@ -46,6 +46,7 @@ interface Props {
   onPause: (taskId: string) => void;
   onResume: (taskId: string) => void;
   onCancel: (taskId: string) => void;
+  multipartThresholdMb?: number;
 }
 
 type Tab = "active" | "uploads" | "downloads";
@@ -59,6 +60,7 @@ export function TransferPanel({
   onPause,
   onResume,
   onCancel,
+  multipartThresholdMb = 16,
 }: Props) {
   const { token } = theme.useToken();
   const [expanded, setExpanded] = useState(false);
@@ -190,6 +192,7 @@ export function TransferPanel({
                     onPause={() => onPause(u.id)}
                     onResume={() => onResume(u.id)}
                     onCancel={() => onCancel(u.id)}
+                    multipartThresholdMb={multipartThresholdMb}
                   />
                 ))}
                 {downloads.map((d) => (
@@ -200,6 +203,7 @@ export function TransferPanel({
                     onPause={() => onPause(d.id)}
                     onResume={() => onResume(d.id)}
                     onCancel={() => onCancel(d.id)}
+                    multipartThresholdMb={multipartThresholdMb}
                   />
                 ))}
                 {totalCount === 0 && (
@@ -254,14 +258,18 @@ function UploadTaskRow({
   onPause,
   onResume,
   onCancel,
+  multipartThresholdMb,
 }: {
   task: UploadTask;
   onDismiss: () => void;
   onPause: () => void;
   onResume: () => void;
   onCancel: () => void;
+  multipartThresholdMb: number;
 }) {
   const { token } = theme.useToken();
+  const thresholdBytes = multipartThresholdMb * 1024 * 1024;
+  const isSmall = task.size != null && task.size < thresholdBytes;
 
   const progressStatus = task.status === "error" || task.status === "cancelled"
     ? "exception"
@@ -274,14 +282,20 @@ function UploadTaskRow({
   const errorMsg = task.error ?? (task.status === "cancelled" ? "Cancelled" : undefined);
 
   const actions = task.status === "running" ? (
-    <Space size={2}>
-      <Tooltip title="Pause">
-        <Button size="small" type="text" icon={<PauseCircleOutlined />} onClick={onPause} />
-      </Tooltip>
+    isSmall ? (
       <Tooltip title="Cancel">
         <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
       </Tooltip>
-    </Space>
+    ) : (
+      <Space size={2}>
+        <Tooltip title="Pause">
+          <Button size="small" type="text" icon={<PauseCircleOutlined />} onClick={onPause} />
+        </Tooltip>
+        <Tooltip title="Cancel">
+          <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
+        </Tooltip>
+      </Space>
+    )
   ) : task.status === "paused" ? (
     <Space size={2}>
       <Tooltip title="Resume">
@@ -347,14 +361,18 @@ function DownloadTaskRow({
   onPause,
   onResume,
   onCancel,
+  multipartThresholdMb,
 }: {
   task: DownloadTask;
   onDismiss: () => void;
   onPause: () => void;
   onResume: () => void;
   onCancel: () => void;
+  multipartThresholdMb: number;
 }) {
   const { token } = theme.useToken();
+  const thresholdBytes = multipartThresholdMb * 1024 * 1024;
+  const isSmall = task.size != null && task.size < thresholdBytes;
 
   const progressStatus = task.status === "error" || task.status === "cancelled"
     ? "exception"
@@ -367,14 +385,20 @@ function DownloadTaskRow({
   const errorMsg = task.error ?? (task.status === "cancelled" ? "Cancelled" : undefined);
 
   const actions = task.status === "running" ? (
-    <Space size={2}>
-      <Tooltip title="Pause">
-        <Button size="small" type="text" icon={<PauseCircleOutlined />} onClick={onPause} />
-      </Tooltip>
+    isSmall ? (
       <Tooltip title="Cancel">
         <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
       </Tooltip>
-    </Space>
+    ) : (
+      <Space size={2}>
+        <Tooltip title="Pause">
+          <Button size="small" type="text" icon={<PauseCircleOutlined />} onClick={onPause} />
+        </Tooltip>
+        <Tooltip title="Cancel">
+          <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
+        </Tooltip>
+      </Space>
+    )
   ) : task.status === "paused" ? (
     <Space size={2}>
       <Tooltip title="Resume">

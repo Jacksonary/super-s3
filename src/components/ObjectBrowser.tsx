@@ -368,18 +368,19 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
 
   // ─── Download (native file dialog) ────────────────────────────────────
 
-  const handleDownload = async (key: string) => {
+  const handleDownload = async (key: string, fileSize?: number) => {
     const filename = key.split("/").pop() || "file";
+    const size = fileSize ?? items.find((i) => i.key === key)?.size ?? undefined;
     const savePath = await save({ defaultPath: filename, title: "Save file" });
     if (!savePath) return;
     const taskId = `dl-${Date.now()}-${filename}`;
     const retry = () => {
       setDownloads((prev) => prev.filter((d) => d.id !== taskId));
-      handleDownload(key);
+      handleDownload(key, size);
     };
-    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", savePath, key, retry }]);
+    setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key, retry }]);
     try {
-      await api.download(accountId, bucket, key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size);
+      await api.download(accountId, bucket, key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
       setDownloads((prev) =>
         prev.map((d) => d.id === taskId ? { ...d, progress: 100, status: "done" as const } : d)
       );
@@ -412,6 +413,8 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         const filename = relPath;
         const taskId = `upload-${++uploadTaskCounter.current}-${relPath.replace(/\//g, "-")}`;
         const key = prefix + relPath;
+        // Get file size to determine whether to show pause button.
+        const size = await api.statFile(filePath).catch(() => undefined);
         // Store retry callback in the task so TransferPanel can trigger it.
         const retry = () => {
           setUploads((prev) => prev.filter((u) => u.id !== taskId));
@@ -419,10 +422,10 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
         };
         setUploads((prev) => [
           ...prev,
-          { id: taskId, filename, progress: 0, status: "running", filePath, relPath, key, retry },
+          { id: taskId, filename, progress: 0, status: "running", size, filePath, relPath, key, retry },
         ]);
         try {
-          await api.uploadObject(accountId, bucket, key, filePath, undefined, taskId, transferConfig.upload_part_concurrency, transferConfig.upload_part_size);
+          await api.uploadObject(accountId, bucket, key, filePath, undefined, taskId, transferConfig.upload_part_concurrency, transferConfig.upload_part_size, transferConfig.multipart_threshold);
           setUploads((prev) =>
             prev.map((u) =>
               u.id === taskId ? { ...u, progress: 100, status: "done" as const } : u

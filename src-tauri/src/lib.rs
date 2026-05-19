@@ -58,6 +58,7 @@ pub fn run() {
             commands::transfer::upload_object,
             commands::transfer::presign_object,
             commands::transfer::expand_paths,
+            commands::transfer::stat_file,
             commands::transfer::cancel_transfer,
             commands::transfer::pause_transfer,
             commands::transfer::resume_transfer,

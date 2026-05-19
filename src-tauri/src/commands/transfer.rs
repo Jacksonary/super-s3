@@ -69,6 +69,7 @@ pub async fn download_object(
     task_id: Option<String>,
     connections: Option<usize>,
     part_size_mb: Option<u64>,
+    multipart_threshold_mb: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     // TaskGuard registers in the registry (only when task_id is Some) and
     // deregisters on drop — guaranteed on any exit path (Ok, Err, panic).
@@ -79,7 +80,8 @@ pub async fn download_object(
 
     let result = download_inner(
         &app, account_idx, &bucket, &key, &tmp_path, &task_id,
-        connections, part_size_mb, &guard.cancel_token, &guard.pause_rx,
+        connections, part_size_mb, multipart_threshold_mb,
+        &guard.cancel_token, &guard.pause_rx,
     )
     .await;
 
@@ -115,14 +117,15 @@ async fn download_inner(
     task_id: &Option<String>,
     connections: Option<usize>,
     part_size_mb: Option<u64>,
+    multipart_threshold_mb: Option<u64>,
     cancel_token: &tokio_util::sync::CancellationToken,
     pause_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
     let client = s3client::get_client(account_idx)?;
 
-    const RANGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100 MB
     const DEFAULT_PART_SIZE_MB: u64 = 8;
     const MAX_CONCURRENT_RANGES: usize = 12;
+    const DEFAULT_MULTIPART_THRESHOLD: u64 = 16;
 
     let range_part_size = part_size_mb
         .map(|s| s.clamp(4, 64) * 1024 * 1024)
@@ -130,6 +133,9 @@ async fn download_inner(
     let max_concurrent = connections
         .map(|c| c.clamp(1, 20))
         .unwrap_or(MAX_CONCURRENT_RANGES);
+    let threshold = multipart_threshold_mb
+        .map(|t| t.clamp(8, 32) * 1024 * 1024)
+        .unwrap_or(DEFAULT_MULTIPART_THRESHOLD * 1024 * 1024);
 
     // Probe the object size with a lightweight HEAD request so that for large
     // files we never have to open a full GET connection only to discard the body.
@@ -142,7 +148,7 @@ async fn download_inner(
         .map_err(|e| format!("Failed to stat object: {e}"))?;
     let total = head.content_length().unwrap_or(0) as u64;
 
-    if total >= RANGE_THRESHOLD {
+    if total >= threshold {
 
         // Pre-allocate the file to avoid fragmentation and allow offset writes.
         let file = tokio::fs::OpenOptions::new()
@@ -329,6 +335,7 @@ pub async fn upload_object(
     task_id: Option<String>,
     part_concurrency: Option<usize>,
     part_size_mb: Option<u64>,
+    multipart_threshold_mb: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     // TaskGuard registers in the registry (only when task_id is Some) and
     // deregisters on drop — guaranteed on any exit path (Ok, Err, panic).
@@ -345,10 +352,13 @@ pub async fn upload_object(
 
     emit_progress(&app, "upload-progress", &task_id, 0);
 
-    const MULTIPART_THRESHOLD: u64 = 100 * 1024 * 1024; // 100 MB
     const DEFAULT_PART_SIZE_MB: u64 = 16;
     const MAX_CONCURRENT_PARTS: usize = 4;
+    const DEFAULT_MULTIPART_THRESHOLD: u64 = 16;
 
+    let threshold = multipart_threshold_mb
+        .map(|t| t.clamp(8, 32) * 1024 * 1024)
+        .unwrap_or(DEFAULT_MULTIPART_THRESHOLD * 1024 * 1024) as usize;
     let part_size = part_size_mb
         .map(|s| s.clamp(8, 64) * 1024 * 1024)
         .unwrap_or(DEFAULT_PART_SIZE_MB * 1024 * 1024) as usize;
@@ -356,7 +366,7 @@ pub async fn upload_object(
         .map(|c| c.clamp(1, 16))
         .unwrap_or(MAX_CONCURRENT_PARTS);
 
-    if size < MULTIPART_THRESHOLD {
+    if (size as usize) < threshold {
         // Small/medium file: single PUT, no multipart overhead.
         let data = tokio::fs::read(&file_path)
             .await
@@ -813,4 +823,13 @@ async fn walk_dir(
         // symlinks and other special files are silently skipped
     }
     Ok(())
+}
+
+/// Return the size of a local file in bytes.
+#[tauri::command]
+pub async fn stat_file(path: String) -> Result<u64, String> {
+    let meta = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| format!("Cannot stat {path}: {e}"))?;
+    Ok(meta.len())
 }

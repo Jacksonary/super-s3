@@ -11,6 +11,7 @@ import {
   Slider,
   Switch,
   Spin,
+  Radio,
   Typography,
   Divider,
   message,
@@ -224,6 +225,7 @@ const TRANSFER_DEFAULTS: TransferConfig = {
   concurrent_files: 5,
   download_connections: 12,
   download_part_size: 8,
+  multipart_threshold: 16,
   upload_part_concurrency: 4,
   upload_part_size: 16,
 };
@@ -289,7 +291,7 @@ function GeneralSection({
           label={
             <Space direction="vertical" size={0}>
               <Text strong>Download connections per file</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>Parallel Range GET for large files (≥100 MB). Increase for high-latency links.</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>Parallel Range GET for large files. Increase for high-latency links.</Text>
             </Space>
           }
         >
@@ -312,8 +314,25 @@ function GeneralSection({
         <Form.Item
           label={
             <Space direction="vertical" size={0}>
+              <Text strong>Multipart threshold (MB)</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>Files larger than this use concurrent parts. Smaller files use single transfer (no pause).</Text>
+            </Space>
+          }
+        >
+          <Radio.Group
+            value={cfg.multipart_threshold}
+            onChange={(e) => setCfg((p) => ({ ...p, multipart_threshold: e.target.value }))}
+          >
+            <Radio.Button value={8}>8</Radio.Button>
+            <Radio.Button value={16}>16</Radio.Button>
+            <Radio.Button value={32}>32</Radio.Button>
+          </Radio.Group>
+        </Form.Item>
+        <Form.Item
+          label={
+            <Space direction="vertical" size={0}>
               <Text strong>Upload part concurrency</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>Simultaneous multipart chunks for large uploads (≥100 MB).</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>Simultaneous multipart chunks for large uploads.</Text>
             </Space>
           }
         >
