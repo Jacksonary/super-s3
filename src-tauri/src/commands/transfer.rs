@@ -43,6 +43,32 @@ fn resumable_part_path(dest: &std::path::Path) -> std::path::PathBuf {
     dest.parent().unwrap_or(dest).join(fname)
 }
 
+/// Returns the metadata path tracking sequential bytes for a given .part file.
+/// e.g. `photo.jpg.part` → `photo.jpg.part.meta`
+fn resumable_meta_path(part_path: &std::path::Path) -> std::path::PathBuf {
+    let mut p = part_path.as_os_str().to_os_string();
+    p.push(".meta");
+    p.into()
+}
+
+/// Writes sequential byte progress to the .meta file for resume tracking.
+async fn write_seq_meta(part_path: &std::path::Path, total: u64, seq_bytes: u64) -> Result<(), String> {
+    let meta_path = resumable_meta_path(part_path);
+    let content = format!("{{\"total\":{},\"seq\":{}}}", total, seq_bytes);
+    tokio::fs::write(&meta_path, content).await
+        .map_err(|e| format!("Failed to write progress metadata: {e}"))
+}
+
+/// Reads sequential byte progress from the .meta file.
+async fn read_seq_meta(part_path: &std::path::Path) -> Option<(u64, u64)> {
+    let meta_path = resumable_meta_path(part_path);
+    let content = tokio::fs::read_to_string(&meta_path).await.ok()?;
+    // Minimal parse: extract total and seq from {"total":X,"seq":Y}
+    let total = content.split('"').nth(3)?.parse::<u64>().ok()?;
+    let seq = content.split('"').nth(7)?.parse::<u64>().ok()?;
+    Some((total, seq))
+}
+
 /// Validate that `relative` (an S3 key suffix) does not escape `base` via `..` or absolute paths.
 fn safe_dest(base: &std::path::Path, relative: &str) -> Option<std::path::PathBuf> {
     if relative.starts_with('/') || relative.starts_with('\\') {
@@ -101,13 +127,14 @@ pub async fn download_object(
             tokio::fs::rename(&tmp_path, save)
                 .await
                 .map_err(|e| format!("Failed to finalise download: {e}"))?;
+            // Clean up progress metadata.
+            let _ = tokio::fs::remove_file(&resumable_meta_path(&tmp_path)).await;
             Ok(serde_json::json!({ "success": true }))
         }
         Err(e) => {
-            // Keep .part file on error so retry can resume from where it left off.
-            // Only delete on cancellation (user explicitly gave up).
             if is_cancelled {
                 let _ = tokio::fs::remove_file(&tmp_path).await;
+                let _ = tokio::fs::remove_file(&resumable_meta_path(&tmp_path)).await;
                 let _ = app.emit("transfer-state", TransferStateEvent {
                     task_id: task_id.clone().unwrap_or_default(),
                     state: "cancelled".to_string(),
@@ -161,7 +188,7 @@ async fn download_inner(
 
     if total >= threshold {
 
-        // Pre-allocate the file to avoid fragmentation and allow offset writes.
+        // Create/truncate the .part file (no pre-allocation — meta tracks real progress).
         let file = tokio::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -170,21 +197,22 @@ async fn download_inner(
             .open(tmp_path)
             .await
             .map_err(|e| format!("Failed to create file: {e}"))?;
-        file.set_len(total)
-            .await
-            .map_err(|e| format!("Failed to pre-allocate file: {e}"))?;
         let file = Arc::new(tokio::sync::Mutex::new(file));
 
+        // Write initial progress metadata (seq=0).
+        write_seq_meta(tmp_path, total, 0).await?;
+
         let num_parts = total.div_ceil(range_part_size);
-        let mut join_set: JoinSet<Result<(), String>> = JoinSet::new();
+        let mut join_set: JoinSet<Result<usize, String>> = JoinSet::new();
         let mut completed_ranges: u64 = 0;
+        // Track which parts completed, for computing sequential bytes on error.
+        let mut completed_parts: Vec<bool> = vec![false; num_parts as usize];
+        let mut sequential_bytes: u64 = 0;
 
         emit_progress(app, "download-single-progress", task_id, 0);
 
         for part_idx in 0..num_parts {
             // Backpressure: drain one completed range before spawning more.
-            // Use select! so cancel/pause is detected immediately even while
-            // waiting for in-flight parts to complete.
             while join_set.len() >= max_concurrent {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
@@ -194,17 +222,27 @@ async fn download_inner(
                     _ = task_registry::wait_if_paused(pause_rx) => {}
                     result = join_set.join_next() => {
                         match result {
-                            Some(Ok(Ok(()))) => {
+                            Some(Ok(Ok(pidx))) => {
                                 completed_ranges += 1;
+                                completed_parts[pidx] = true;
+                                while (sequential_bytes / range_part_size) < num_parts
+                                    && completed_parts[(sequential_bytes / range_part_size) as usize]
+                                {
+                                    sequential_bytes += range_part_size;
+                                    if sequential_bytes > total { sequential_bytes = total; }
+                                }
+                                let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                                 let pct = ((completed_ranges * 100) / num_parts).min(99) as u8;
                                 emit_progress(app, "download-single-progress", task_id, pct);
                             }
                             Some(Ok(Err(e))) => {
                                 join_set.abort_all();
+                                let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                                 return Err(e);
                             }
                             Some(Err(e)) => {
                                 join_set.abort_all();
+                                let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                                 return Err(format!("Download task panicked: {e}"));
                             }
                             None => break,
@@ -220,6 +258,7 @@ async fn download_inner(
             tokio::select! {
                 _ = cancel_token.cancelled() => {
                     join_set.abort_all();
+                    let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                     return Err("Transfer cancelled".to_string());
                 }
                 _ = task_registry::wait_if_paused(pause_rx) => {}
@@ -255,24 +294,34 @@ async fn download_inner(
                 f.write_all(&bytes)
                     .await
                     .map_err(|e| format!("Write {start}: {e}"))?;
-                Ok(())
+                Ok(part_idx as usize)
             });
         }
 
-        // Drain remaining.
+        // Drain all remaining results.
         while let Some(result) = join_set.join_next().await {
             match result {
-                Ok(Ok(())) => {
+                Ok(Ok(pidx)) => {
                     completed_ranges += 1;
+                    completed_parts[pidx] = true;
+                    while (sequential_bytes / range_part_size) < num_parts
+                        && completed_parts[(sequential_bytes / range_part_size) as usize]
+                    {
+                        sequential_bytes += range_part_size;
+                        if sequential_bytes > total { sequential_bytes = total; }
+                    }
+                    let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                     let pct = ((completed_ranges * 100) / num_parts).min(99) as u8;
                     emit_progress(app, "download-single-progress", task_id, pct);
                 }
                 Ok(Err(e)) => {
                     join_set.abort_all();
+                    let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                     return Err(e);
                 }
                 Err(e) => {
                     join_set.abort_all();
+                    let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                     return Err(format!("Download task panicked: {e}"));
                 }
             }
@@ -641,11 +690,16 @@ pub async fn resume_download(
         .map_err(|e| format!("Failed to stat object: {e}"))?;
     let total = head.content_length().unwrap_or(0) as u64;
 
-    // Check how much we already have.
-    let existing = tokio::fs::metadata(&part_path).await;
-    let offset = match existing {
-        Ok(meta) => meta.len(),
-        Err(_) => 0,
+    // Check how much we actually have (using sequential byte metadata, not file size).
+    let offset = match read_seq_meta(&part_path).await {
+        Some((meta_total, seq)) if meta_total == total => seq,
+        Some((meta_total, _)) if meta_total != total => {
+            // S3 object was replaced. Remove stale data and re-download.
+            let _ = tokio::fs::remove_file(&part_path).await;
+            let _ = tokio::fs::remove_file(&resumable_meta_path(&part_path)).await;
+            0
+        }
+        _ => 0,
     };
 
     if offset >= total && total > 0 {
@@ -653,24 +707,9 @@ pub async fn resume_download(
         tokio::fs::rename(&part_path, save)
             .await
             .map_err(|e| format!("Failed to finalise download: {e}"))?;
+        let _ = tokio::fs::remove_file(&resumable_meta_path(&part_path)).await;
         emit_progress(&app, "download-single-progress", &task_id, 100);
         return Ok(serde_json::json!({ "success": true, "resumed_from": offset }));
-    }
-
-    if offset > total {
-        // S3 object was replaced with a smaller one. Remove stale .part and re-download.
-        let _ = tokio::fs::remove_file(&part_path).await;
-        let result = download_inner(
-            &app, account_idx, &bucket, &key, &part_path, &task_id,
-            connections, part_size_mb, multipart_threshold_mb, &guard.cancel_token, &guard.pause_rx,
-        )
-        .await;
-        if result.is_ok() {
-            tokio::fs::rename(&part_path, save)
-                .await
-                .map_err(|e| format!("Failed to finalise download: {e}"))?;
-        }
-        return result.map(|()| serde_json::json!({ "success": true, "resumed_from": 0 }));
     }
 
     if offset == 0 {
@@ -684,6 +723,7 @@ pub async fn resume_download(
             tokio::fs::rename(&part_path, save)
                 .await
                 .map_err(|e| format!("Failed to finalise download: {e}"))?;
+            let _ = tokio::fs::remove_file(&resumable_meta_path(&part_path)).await;
         } else {
             // Keep .part on error for future resume.
         }
@@ -752,17 +792,23 @@ pub async fn resume_download(
             tokio::fs::rename(&part_path, save)
                 .await
                 .map_err(|e| format!("Failed to finalise download: {e}"))?;
+            let _ = tokio::fs::remove_file(&resumable_meta_path(&part_path)).await;
             emit_progress(&app, "download-single-progress", &task_id, 100);
             Ok(serde_json::json!({ "success": true, "resumed_from": offset }))
         }
         Err(e) => {
-            // Keep .part on error for future resume.
             if e.contains("Transfer cancelled") {
                 let _ = tokio::fs::remove_file(&part_path).await;
+                let _ = tokio::fs::remove_file(&resumable_meta_path(&part_path)).await;
                 let _ = app.emit("transfer-state", TransferStateEvent {
                     task_id: task_id.clone().unwrap_or_default(),
                     state: "cancelled".to_string(),
                 });
+            } else {
+                // Truncate partial append so future resume starts from known-good offset.
+                if let Ok(f) = tokio::fs::OpenOptions::new().write(true).open(&part_path).await {
+                    let _ = f.set_len(offset).await;
+                }
             }
             Err(e)
         }
