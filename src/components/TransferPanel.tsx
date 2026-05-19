@@ -34,7 +34,7 @@ const { Text } = Typography;
 
 const isFinished = (s: TransferStatus) => s === "done";
 const isActive = (s: TransferStatus) =>
-  s === "running" || s === "paused" || s === "pending" || s === "error" || s === "cancelled";
+  s === "running" || s === "paused" || s === "pending" || s === "error";
 const isInactive = (s: TransferStatus) => s === "paused" || s === "pending";
 
 interface Props {
@@ -307,7 +307,7 @@ function UploadTaskRow({
         <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
       </Tooltip>
     </Space>
-  ) : (task.status === "error" || task.status === "cancelled") ? (
+  ) : task.status === "error" ? (
     <Space size={2}>
       {task.retry && (
         <Tooltip title="Retry">
@@ -324,6 +324,10 @@ function UploadTaskRow({
         <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onDismiss} />
       </Tooltip>
     </Space>
+  ) : task.status === "cancelled" ? (
+    <Tooltip title="Dismiss">
+      <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onDismiss} />
+    </Tooltip>
   ) : task.status === "done" ? null : null;
 
   return (
@@ -418,7 +422,7 @@ function DownloadTaskRow({
         <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
       </Tooltip>
     </Space>
-  ) : (task.status === "error" || task.status === "cancelled") ? (
+  ) : task.status === "error" ? (
     <Space size={2}>
       {task.retry && (
         <Tooltip title="Retry">
@@ -435,6 +439,10 @@ function DownloadTaskRow({
         <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onDismiss} />
       </Tooltip>
     </Space>
+  ) : task.status === "cancelled" ? (
+    <Tooltip title="Dismiss">
+      <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onDismiss} />
+    </Tooltip>
   ) : task.status === "done" ? (
     <Tooltip title="Dismiss">
       <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onDismiss} />
