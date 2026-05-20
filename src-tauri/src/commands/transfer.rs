@@ -201,22 +201,20 @@ async fn download_inner(
         write_seq_meta(tmp_path, total, 0).await?;
 
         let num_parts = total.div_ceil(range_part_size);
-        let mut join_set: JoinSet<Result<usize, String>> = JoinSet::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Result<usize, String>>();
+        let mut in_flight: usize = 0;
         let mut completed_ranges: u64 = 0;
-        // Track which parts completed, for computing sequential bytes on error.
         let mut completed_parts: Vec<bool> = vec![false; num_parts as usize];
         let mut sequential_bytes: u64 = 0;
 
         emit_progress(app, "download-single-progress", task_id, 0);
 
         for part_idx in 0..num_parts {
-            // Backpressure: drain one completed range before spawning more.
-            while join_set.len() >= max_concurrent {
-                // Block while paused, allowing cancel to interrupt.
+            // Backpressure: wait for one task to complete before spawning more.
+            while in_flight >= max_concurrent {
                 while *pause_rx.borrow() {
                     tokio::select! {
                         _ = cancel_token.cancelled() => {
-                            join_set.abort_all();
                             return Err("Transfer cancelled".to_string());
                         }
                         _ = task_registry::wait_if_paused(pause_rx) => {}
@@ -224,12 +222,12 @@ async fn download_inner(
                 }
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
-                        join_set.abort_all();
                         return Err("Transfer cancelled".to_string());
                     }
-                    result = join_set.join_next() => {
+                    result = rx.recv() => {
                         match result {
-                            Some(Ok(Ok(pidx))) => {
+                            Some(Ok(pidx)) => {
+                                in_flight -= 1;
                                 completed_ranges += 1;
                                 completed_parts[pidx] = true;
                                 while (sequential_bytes / range_part_size) < num_parts
@@ -242,15 +240,9 @@ async fn download_inner(
                                 let pct = ((completed_ranges * 100) / num_parts).min(99) as u8;
                                 emit_progress(app, "download-single-progress", task_id, pct);
                             }
-                            Some(Ok(Err(e))) => {
-                                join_set.abort_all();
+                            Some(Err(e)) => {
                                 let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                                 return Err(e);
-                            }
-                            Some(Err(e)) => {
-                                join_set.abort_all();
-                                let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
-                                return Err(format!("Download task panicked: {e}"));
                             }
                             None => break,
                         }
@@ -265,7 +257,6 @@ async fn download_inner(
             while *pause_rx.borrow() {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
-                        join_set.abort_all();
                         let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                         return Err("Transfer cancelled".to_string());
                     }
@@ -273,7 +264,6 @@ async fn download_inner(
                 }
             }
             if cancel_token.is_cancelled() {
-                join_set.abort_all();
                 let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                 return Err("Transfer cancelled".to_string());
             }
@@ -284,38 +274,47 @@ async fn download_inner(
             let bkt = bucket.to_owned();
             let ky = key.to_owned();
             let file = Arc::clone(&file);
+            let tx = tx.clone();
 
-            join_set.spawn(async move {
-                let r = cl
-                    .get_object()
-                    .bucket(&bkt)
-                    .key(&ky)
-                    .range(range_str)
-                    .send()
-                    .await
-                    .map_err(|e| format!("Range {start}: {e}"))?;
-                let bytes = r
-                    .body
-                    .collect()
-                    .await
-                    .map_err(|e| format!("Range {start} read: {e}"))?
-                    .into_bytes();
+            tokio::spawn(async move {
+                let result = async {
+                    let r = cl
+                        .get_object()
+                        .bucket(&bkt)
+                        .key(&ky)
+                        .range(range_str)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Range {start}: {e}"))?;
+                    let bytes = r
+                        .body
+                        .collect()
+                        .await
+                        .map_err(|e| format!("Range {start} read: {e}"))?
+                        .into_bytes();
 
-                {
-                    let mut f = file.lock().map_err(|e| format!("Lock: {e}"))?;
-                    f.seek(std::io::SeekFrom::Start(start))
-                        .map_err(|e| format!("Seek {start}: {e}"))?;
-                    f.write_all(&bytes)
-                        .map_err(|e| format!("Write {start}: {e}"))?;
+                    {
+                        let mut f = file.lock().map_err(|e| format!("Lock: {e}"))?;
+                        f.seek(std::io::SeekFrom::Start(start))
+                            .map_err(|e| format!("Seek {start}: {e}"))?;
+                        f.write_all(&bytes)
+                            .map_err(|e| format!("Write {start}: {e}"))?;
+                    }
+                    Ok::<usize, String>(part_idx as usize)
                 }
-                Ok(part_idx as usize)
+                .await;
+                let _ = tx.send(result);
             });
+            in_flight += 1;
         }
 
-        // Drain all remaining results.
-        while let Some(result) = join_set.join_next().await {
+        // Drop our sender so rx.recv() returns None when all tasks finish.
+        drop(tx);
+
+        // Collect remaining results.
+        while let Some(result) = rx.recv().await {
             match result {
-                Ok(Ok(pidx)) => {
+                Ok(pidx) => {
                     completed_ranges += 1;
                     completed_parts[pidx] = true;
                     while (sequential_bytes / range_part_size) < num_parts
@@ -328,15 +327,9 @@ async fn download_inner(
                     let pct = ((completed_ranges * 100) / num_parts).min(99) as u8;
                     emit_progress(app, "download-single-progress", task_id, pct);
                 }
-                Ok(Err(e)) => {
-                    join_set.abort_all();
+                Err(e) => {
                     let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
                     return Err(e);
-                }
-                Err(e) => {
-                    join_set.abort_all();
-                    let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
-                    return Err(format!("Download task panicked: {e}"));
                 }
             }
         }
