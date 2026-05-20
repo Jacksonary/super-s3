@@ -3,12 +3,13 @@ use crate::task_registry;
 use crate::types::{DownloadProgress, ExpandedEntry, TaskProgress, TransferStateEvent};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
+use std::io::{Seek, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
@@ -67,52 +68,6 @@ async fn read_seq_meta(part_path: &std::path::Path) -> Option<(u64, u64)> {
     let total = content.split('"').nth(3)?.parse::<u64>().ok()?;
     let seq = content.split('"').nth(7)?.parse::<u64>().ok()?;
     Some((total, seq))
-}
-
-/// Probe object size using a dedicated non-pooling client.
-///
-/// Uses a separate S3 client with `pool_idle_timeout(ZERO)` so the probe's
-/// TCP connection is closed immediately after use and never enters the shared
-/// connection pool.  This prevents range-download tasks from inheriting a
-/// probe connection that some S3-compatible providers mishandle on reuse.
-async fn probe_object_size(
-    account_idx: usize,
-    bucket: &str,
-    key: &str,
-) -> Result<u64, String> {
-    let probe_client = s3client::make_probe_client(account_idx)?;
-
-    let resp = match probe_client
-        .get_object()
-        .bucket(bucket)
-        .key(key)
-        .range("bytes=0-0")
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            // 416 Range Not Satisfiable → empty object (0 bytes).
-            let is_416 = e.raw_response()
-                .map_or(false, |r| r.status().as_u16() == 416);
-            if is_416 {
-                return Ok(0);
-            }
-            return Err(format!("Failed to probe object size: {e}"));
-        }
-    };
-
-    // Content-Range: bytes 0-0/<total>
-    let total = resp
-        .content_range()
-        .and_then(|cr| cr.rsplit('/').next())
-        .and_then(|s| s.parse::<u64>().ok())
-        .ok_or_else(|| "Server did not return Content-Range with total size".to_string())?;
-
-    // Consume body so the connection is properly finalized before close.
-    let _ = resp.body.collect().await;
-
-    Ok(total)
 }
 
 /// Validate that `relative` (an S3 key suffix) does not escape `base` via `..` or absolute paths.
@@ -221,20 +176,26 @@ async fn download_inner(
         .map(|t| t.clamp(8, 32) * 1024 * 1024)
         .unwrap_or(DEFAULT_MULTIPART_THRESHOLD * 1024 * 1024);
 
-    let total = probe_object_size(account_idx, bucket, key).await?;
+    let head = client
+        .head_object()
+        .bucket(bucket)
+        .key(key)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to stat object: {e}"))?;
+    let total = head.content_length().unwrap_or(0) as u64;
 
     if total >= threshold {
 
         // Create/truncate the .part file (no pre-allocation — meta tracks real progress).
-        let file = tokio::fs::OpenOptions::new()
+        let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(true)
             .open(tmp_path)
-            .await
             .map_err(|e| format!("Failed to create file: {e}"))?;
-        let file = Arc::new(tokio::sync::Mutex::new(file));
+        let file = Arc::new(std::sync::Mutex::new(file));
 
         // Write initial progress metadata (seq=0).
         write_seq_meta(tmp_path, total, 0).await?;
@@ -340,13 +301,16 @@ async fn download_inner(
                     .map_err(|e| format!("Range {start} read: {e}"))?
                     .into_bytes();
 
-                let mut f = file.lock().await;
-                f.seek(std::io::SeekFrom::Start(start))
-                    .await
-                    .map_err(|e| format!("Seek {start}: {e}"))?;
-                f.write_all(&bytes)
-                    .await
-                    .map_err(|e| format!("Write {start}: {e}"))?;
+                tokio::task::spawn_blocking(move || {
+                    let mut f = file.lock().map_err(|e| format!("Lock: {e}"))?;
+                    f.seek(std::io::SeekFrom::Start(start))
+                        .map_err(|e| format!("Seek {start}: {e}"))?;
+                    f.write_all(&bytes)
+                        .map_err(|e| format!("Write {start}: {e}"))?;
+                    Ok::<_, String>(())
+                })
+                .await
+                .map_err(|e| format!("IO task panicked: {e}"))??;
                 Ok(part_idx as usize)
             });
         }
@@ -382,10 +346,9 @@ async fn download_inner(
 
         let mut f = Arc::try_unwrap(file)
             .map_err(|_| "File Arc still has multiple owners".to_string())?
-            .into_inner();
-        f.flush()
-            .await
-            .map_err(|e| format!("Failed to flush file: {e}"))?;
+            .into_inner()
+            .map_err(|e| format!("Mutex poisoned: {e}"))?;
+        f.flush().map_err(|e| format!("Failed to flush file: {e}"))?;
     } else {
         // Small/medium file: single streaming GET.
         let resp = client
@@ -759,7 +722,14 @@ pub async fn resume_download(
     let part_path = resumable_part_path(save);
 
     let client = s3client::get_client(account_idx)?;
-    let total = probe_object_size(account_idx, &bucket, &key).await?;
+    let head = client
+        .head_object()
+        .bucket(&bucket)
+        .key(&key)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to stat object: {e}"))?;
+    let total = head.content_length().unwrap_or(0) as u64;
 
     // Check how much we actually have (using sequential byte metadata, not file size).
     let offset = match read_seq_meta(&part_path).await {
