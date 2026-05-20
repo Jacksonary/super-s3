@@ -214,12 +214,21 @@ async fn download_inner(
         for part_idx in 0..num_parts {
             // Backpressure: drain one completed range before spawning more.
             while join_set.len() >= max_concurrent {
+                // Block while paused, allowing cancel to interrupt.
+                while *pause_rx.borrow() {
+                    tokio::select! {
+                        _ = cancel_token.cancelled() => {
+                            join_set.abort_all();
+                            return Err("Transfer cancelled".to_string());
+                        }
+                        _ = task_registry::wait_if_paused(pause_rx) => {}
+                    }
+                }
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         join_set.abort_all();
                         return Err("Transfer cancelled".to_string());
                     }
-                    _ = task_registry::wait_if_paused(pause_rx) => {}
                     result = join_set.join_next() => {
                         match result {
                             Some(Ok(Ok(pidx))) => {
@@ -255,13 +264,20 @@ async fn download_inner(
             let end = (start + range_part_size - 1).min(total - 1);
 
             // Check for cancellation or pause before spawning the next range.
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    join_set.abort_all();
-                    let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
-                    return Err("Transfer cancelled".to_string());
+            while *pause_rx.borrow() {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        join_set.abort_all();
+                        let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
+                        return Err("Transfer cancelled".to_string());
+                    }
+                    _ = task_registry::wait_if_paused(pause_rx) => {}
                 }
-                _ = task_registry::wait_if_paused(pause_rx) => {}
+            }
+            if cancel_token.is_cancelled() {
+                join_set.abort_all();
+                let _ = write_seq_meta(tmp_path, total, sequential_bytes).await;
+                return Err("Transfer cancelled".to_string());
             }
 
             let range_str = format!("bytes={start}-{end}");
@@ -352,15 +368,25 @@ async fn download_inner(
         let mut last_pct: u8 = 0;
 
         loop {
-            // Check for cancellation or pause before processing next chunk.
-            tokio::select! {
+            // Block while paused, allowing cancel to interrupt.
+            while *pause_rx.borrow() {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        return Err("Transfer cancelled".to_string());
+                    }
+                    _ = task_registry::wait_if_paused(pause_rx) => {}
+                }
+            }
+            // Stream next chunk with cancel detection.
+            let bytes = tokio::select! {
                 _ = cancel_token.cancelled() => {
                     return Err("Transfer cancelled".to_string());
                 }
-                _ = task_registry::wait_if_paused(pause_rx) => {}
-            }
-            let Some(chunk) = body.next().await else { break; };
-            let bytes = chunk.map_err(|e| format!("Failed to read body: {e}"))?;
+                chunk = body.next() => {
+                    let Some(chunk) = chunk else { break; };
+                    chunk.map_err(|e| format!("Failed to read body: {e}"))?
+                }
+            };
             file.write_all(&bytes)
                 .await
                 .map_err(|e| format!("Failed to write file: {e}"))?;
@@ -490,13 +516,22 @@ pub async fn upload_object(
             // Use select! so cancel/pause is detected immediately even while
             // waiting for in-flight parts to complete.
             while join_set.len() >= max_parts {
+                while *guard.pause_rx.borrow() {
+                    tokio::select! {
+                        _ = guard.cancel_token.cancelled() => {
+                            join_set.abort_all();
+                            abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
+                            return Err("Transfer cancelled".to_string());
+                        }
+                        _ = task_registry::wait_if_paused(&guard.pause_rx) => {}
+                    }
+                }
                 tokio::select! {
                     _ = guard.cancel_token.cancelled() => {
                         join_set.abort_all();
                         abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
                         return Err("Transfer cancelled".to_string());
                     }
-                    _ = task_registry::wait_if_paused(&guard.pause_rx) => {}
                     result = join_set.join_next() => {
                         match result {
                             Some(Ok(Ok((pnum, etag)))) => completed_parts.push((pnum, etag)),
@@ -520,13 +555,20 @@ pub async fn upload_object(
             }
 
             // Check for cancellation or pause before reading the next chunk.
-            tokio::select! {
-                _ = guard.cancel_token.cancelled() => {
-                    join_set.abort_all();
-                    abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
-                    return Err("Transfer cancelled".to_string());
+            while *guard.pause_rx.borrow() {
+                tokio::select! {
+                    _ = guard.cancel_token.cancelled() => {
+                        join_set.abort_all();
+                        abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
+                        return Err("Transfer cancelled".to_string());
+                    }
+                    _ = task_registry::wait_if_paused(&guard.pause_rx) => {}
                 }
-                _ = task_registry::wait_if_paused(&guard.pause_rx) => {}
+            }
+            if guard.cancel_token.is_cancelled() {
+                join_set.abort_all();
+                abort(client.clone(), bucket.clone(), key.clone(), upload_id.clone());
+                return Err("Transfer cancelled".to_string());
             }
 
             // Read the next chunk.
