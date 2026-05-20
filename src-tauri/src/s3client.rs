@@ -132,49 +132,6 @@ pub fn provider_name(endpoint: &str) -> String {
     }
 }
 
-/// Build a one-shot S3 client whose connections are never pooled.
-///
-/// Used for probe requests (e.g. getting object size) to avoid polluting the
-/// shared connection pool. Some S3-compatible providers cause reused probe
-/// connections to hang when subsequently used for range downloads.
-pub fn make_probe_client(account_idx: usize) -> Result<aws_sdk_s3::Client, String> {
-    let account = get_account(account_idx)?;
-
-    let ep = account.endpoint.to_lowercase();
-    let is_tos =
-        ep.contains("volces.com") || ep.contains("volcengineapi") || ep.contains("tos-s3");
-    let force_path_style = !is_tos;
-
-    let creds = Credentials::new(&account.ak, &account.sk, None, None, "super-s3-static");
-    let region = Region::new(account.region.clone());
-
-    let http_client = aws_smithy_http_client::Builder::new()
-        .pool_idle_timeout(std::time::Duration::ZERO)
-        .tls_provider(aws_smithy_http_client::tls::Provider::Rustls(
-            aws_smithy_http_client::tls::rustls_provider::CryptoMode::Ring,
-        ))
-        .build_https();
-
-    let mut builder = aws_sdk_s3::config::Builder::new()
-        .behavior_version(BehaviorVersion::latest())
-        .credentials_provider(SharedCredentialsProvider::new(creds))
-        .region(region)
-        .force_path_style(force_path_style)
-        .http_client(http_client)
-        .request_checksum_calculation(RequestChecksumCalculation::WhenRequired)
-        .response_checksum_validation(ResponseChecksumValidation::WhenRequired);
-
-    if !account.endpoint.is_empty() {
-        builder = builder.endpoint_url(&account.endpoint);
-    }
-
-    if is_qiniu(&account.endpoint) {
-        builder = builder.interceptor(ContentMd5Interceptor);
-    }
-
-    Ok(aws_sdk_s3::Client::from_conf(builder.build()))
-}
-
 /// Build an S3 client for the given account config.
 ///
 /// Callers should prefer `get_client()` which caches the result so that
