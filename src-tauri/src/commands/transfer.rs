@@ -301,16 +301,13 @@ async fn download_inner(
                     .map_err(|e| format!("Range {start} read: {e}"))?
                     .into_bytes();
 
-                tokio::task::spawn_blocking(move || {
+                {
                     let mut f = file.lock().map_err(|e| format!("Lock: {e}"))?;
                     f.seek(std::io::SeekFrom::Start(start))
                         .map_err(|e| format!("Seek {start}: {e}"))?;
                     f.write_all(&bytes)
                         .map_err(|e| format!("Write {start}: {e}"))?;
-                    Ok::<_, String>(())
-                })
-                .await
-                .map_err(|e| format!("IO task panicked: {e}"))??;
+                }
                 Ok(part_idx as usize)
             });
         }
