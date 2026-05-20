@@ -69,6 +69,51 @@ async fn read_seq_meta(part_path: &std::path::Path) -> Option<(u64, u64)> {
     Some((total, seq))
 }
 
+/// Probe object size using a `Range: bytes=0-0` GET instead of HEAD.
+///
+/// HEAD responses have no body, so the underlying HTTP connection is returned
+/// to the pool in an ambiguous keep-alive state.  Some S3-compatible providers
+/// leave the connection "half-dirty", and when hyper reuses it for a subsequent
+/// GET the response stream hangs forever.  Using a 1-byte Range GET ensures the
+/// response body is fully consumed and the connection is returned cleanly.
+async fn probe_object_size(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+) -> Result<u64, String> {
+    let resp = match client
+        .get_object()
+        .bucket(bucket)
+        .key(key)
+        .range("bytes=0-0")
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            // 416 Range Not Satisfiable → empty object (0 bytes).
+            let is_416 = e.raw_response()
+                .map_or(false, |r| r.status().as_u16() == 416);
+            if is_416 {
+                return Ok(0);
+            }
+            return Err(format!("Failed to probe object size: {e}"));
+        }
+    };
+
+    // Content-Range: bytes 0-0/<total>
+    let total = resp
+        .content_range()
+        .and_then(|cr| cr.rsplit('/').next())
+        .and_then(|s| s.parse::<u64>().ok())
+        .ok_or_else(|| "Server did not return Content-Range with total size".to_string())?;
+
+    // Consume the 1-byte body so the connection is cleanly returned to the pool.
+    let _ = resp.body.collect().await;
+
+    Ok(total)
+}
+
 /// Validate that `relative` (an S3 key suffix) does not escape `base` via `..` or absolute paths.
 fn safe_dest(base: &std::path::Path, relative: &str) -> Option<std::path::PathBuf> {
     if relative.starts_with('/') || relative.starts_with('\\') {
@@ -175,16 +220,7 @@ async fn download_inner(
         .map(|t| t.clamp(8, 32) * 1024 * 1024)
         .unwrap_or(DEFAULT_MULTIPART_THRESHOLD * 1024 * 1024);
 
-    // Probe the object size with a lightweight HEAD request so that for large
-    // files we never have to open a full GET connection only to discard the body.
-    let head = client
-        .head_object()
-        .bucket(bucket)
-        .key(key)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to stat object: {e}"))?;
-    let total = head.content_length().unwrap_or(0) as u64;
+    let total = probe_object_size(&client, bucket, key).await?;
 
     if total >= threshold {
 
@@ -721,16 +757,8 @@ pub async fn resume_download(
     let save = std::path::Path::new(&save_path);
     let part_path = resumable_part_path(save);
 
-    // Probe the object size.
     let client = s3client::get_client(account_idx)?;
-    let head = client
-        .head_object()
-        .bucket(&bucket)
-        .key(&key)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to stat object: {e}"))?;
-    let total = head.content_length().unwrap_or(0) as u64;
+    let total = probe_object_size(&client, &bucket, &key).await?;
 
     // Check how much we actually have (using sequential byte metadata, not file size).
     let offset = match read_seq_meta(&part_path).await {
