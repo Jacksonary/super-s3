@@ -69,19 +69,20 @@ async fn read_seq_meta(part_path: &std::path::Path) -> Option<(u64, u64)> {
     Some((total, seq))
 }
 
-/// Probe object size using a `Range: bytes=0-0` GET instead of HEAD.
+/// Probe object size using a dedicated non-pooling client.
 ///
-/// HEAD responses have no body, so the underlying HTTP connection is returned
-/// to the pool in an ambiguous keep-alive state.  Some S3-compatible providers
-/// leave the connection "half-dirty", and when hyper reuses it for a subsequent
-/// GET the response stream hangs forever.  Using a 1-byte Range GET ensures the
-/// response body is fully consumed and the connection is returned cleanly.
+/// Uses a separate S3 client with `pool_idle_timeout(ZERO)` so the probe's
+/// TCP connection is closed immediately after use and never enters the shared
+/// connection pool.  This prevents range-download tasks from inheriting a
+/// probe connection that some S3-compatible providers mishandle on reuse.
 async fn probe_object_size(
-    client: &aws_sdk_s3::Client,
+    account_idx: usize,
     bucket: &str,
     key: &str,
 ) -> Result<u64, String> {
-    let resp = match client
+    let probe_client = s3client::make_probe_client(account_idx)?;
+
+    let resp = match probe_client
         .get_object()
         .bucket(bucket)
         .key(key)
@@ -108,7 +109,7 @@ async fn probe_object_size(
         .and_then(|s| s.parse::<u64>().ok())
         .ok_or_else(|| "Server did not return Content-Range with total size".to_string())?;
 
-    // Consume the 1-byte body so the connection is cleanly returned to the pool.
+    // Consume body so the connection is properly finalized before close.
     let _ = resp.body.collect().await;
 
     Ok(total)
@@ -220,7 +221,7 @@ async fn download_inner(
         .map(|t| t.clamp(8, 32) * 1024 * 1024)
         .unwrap_or(DEFAULT_MULTIPART_THRESHOLD * 1024 * 1024);
 
-    let total = probe_object_size(&client, bucket, key).await?;
+    let total = probe_object_size(account_idx, bucket, key).await?;
 
     if total >= threshold {
 
@@ -758,7 +759,7 @@ pub async fn resume_download(
     let part_path = resumable_part_path(save);
 
     let client = s3client::get_client(account_idx)?;
-    let total = probe_object_size(&client, &bucket, &key).await?;
+    let total = probe_object_size(account_idx, &bucket, &key).await?;
 
     // Check how much we actually have (using sequential byte metadata, not file size).
     let offset = match read_seq_meta(&part_path).await {
