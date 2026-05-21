@@ -203,7 +203,6 @@ export function TransferPanel({
                     onPause={() => onPause(d.id)}
                     onResume={() => onResume(d.id)}
                     onCancel={() => onCancel(d.id)}
-                    multipartThresholdMb={multipartThresholdMb}
                   />
                 ))}
                 {totalCount === 0 && (
@@ -368,19 +367,14 @@ function DownloadTaskRow({
   onPause,
   onResume,
   onCancel,
-  multipartThresholdMb,
 }: {
   task: DownloadTask;
   onDismiss: () => void;
   onPause: () => void;
   onResume: () => void;
   onCancel: () => void;
-  multipartThresholdMb: number;
 }) {
   const { token } = theme.useToken();
-  const thresholdBytes = multipartThresholdMb * 1024 * 1024;
-  // When size is unknown, conservatively hide pause button (may be a small file).
-  const isSmall = task.size == null || task.size < thresholdBytes;
 
   const progressStatus = task.status === "error" || task.status === "cancelled"
     ? "exception"
@@ -393,20 +387,14 @@ function DownloadTaskRow({
   const errorMsg = task.error ?? (task.status === "cancelled" ? "Cancelled" : undefined);
 
   const actions = task.status === "running" ? (
-    isSmall ? (
+    <Space size={2}>
+      <Tooltip title="Pause">
+        <Button size="small" type="text" icon={<PauseCircleOutlined />} onClick={onPause} />
+      </Tooltip>
       <Tooltip title="Cancel">
         <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
       </Tooltip>
-    ) : (
-      <Space size={2}>
-        <Tooltip title="Pause">
-          <Button size="small" type="text" icon={<PauseCircleOutlined />} onClick={onPause} />
-        </Tooltip>
-        <Tooltip title="Cancel">
-          <Button size="small" type="text" icon={<CloseCircleOutlined />} onClick={onCancel} />
-        </Tooltip>
-      </Space>
-    )
+    </Space>
   ) : task.status === "paused" ? (
     <Space size={2}>
       <Tooltip title="Resume">
