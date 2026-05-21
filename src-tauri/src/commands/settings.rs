@@ -11,8 +11,6 @@ pub fn put_transfer_config(config: TransferConfig) -> Result<serde_json::Value, 
     // Clamp values to safe ranges before persisting.
     let safe = TransferConfig {
         concurrent_files: config.concurrent_files.clamp(1, 10),
-        download_connections: config.download_connections.clamp(1, 20),
-        download_part_size: config.download_part_size.clamp(4, 64),
         multipart_threshold: config.multipart_threshold.clamp(8, 32),
         upload_part_concurrency: config.upload_part_concurrency.clamp(1, 16),
         upload_part_size: config.upload_part_size.clamp(8, 64),

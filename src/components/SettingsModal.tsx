@@ -223,8 +223,6 @@ function AccountSection({ onAccountsChange, onClose, initialAction }: { onAccoun
 
 const TRANSFER_DEFAULTS: TransferConfig = {
   concurrent_files: 5,
-  download_connections: 12,
-  download_part_size: 8,
   multipart_threshold: 16,
   upload_part_concurrency: 4,
   upload_part_size: 16,
@@ -290,30 +288,6 @@ function GeneralSection({
         <Form.Item
           label={
             <Space direction="vertical" size={0}>
-              <Text strong>Download connections per file</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>Parallel Range GET for large files. Increase for high-latency links.</Text>
-            </Space>
-          }
-        >
-          <Slider min={1} max={20} marks={{ 1: "1", 4: "4", 12: "12", 20: "20" }}
-            value={cfg.download_connections}
-            onChange={(v) => setCfg((p) => ({ ...p, download_connections: v }))} />
-        </Form.Item>
-        <Form.Item
-          label={
-            <Space direction="vertical" size={0}>
-              <Text strong>Download part size (MB)</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>Size of each Range GET chunk. Larger parts reduce HTTP overhead but use more memory.</Text>
-            </Space>
-          }
-        >
-          <Slider min={4} max={64} step={4} marks={{ 4: "4", 8: "8", 16: "16", 32: "32", 64: "64" }}
-            value={cfg.download_part_size}
-            onChange={(v) => setCfg((p) => ({ ...p, download_part_size: v }))} />
-        </Form.Item>
-        <Form.Item
-          label={
-            <Space direction="vertical" size={0}>
               <Text strong>Multipart threshold (MB)</Text>
               <Text type="secondary" style={{ fontSize: 12 }}>Files larger than this use concurrent parts. Smaller files use single transfer (no pause).</Text>
             </Space>
@@ -353,7 +327,7 @@ function GeneralSection({
             onChange={(v) => setCfg((p) => ({ ...p, upload_part_size: v }))} />
         </Form.Item>
         <Text type="secondary" style={{ fontSize: 11 }}>
-          Memory: up to {cfg.download_connections * cfg.download_part_size} MB (download) / {cfg.upload_part_concurrency * cfg.upload_part_size} MB (upload)
+          Memory: up to {cfg.upload_part_concurrency * cfg.upload_part_size} MB (upload)
         </Text>
       </Form>
       <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
