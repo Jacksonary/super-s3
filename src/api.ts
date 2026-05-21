@@ -93,9 +93,6 @@ export const api = {
     key: string,
     savePath: string,
     taskId?: string,
-    connections?: number,
-    partSizeMb?: number,
-    multipartThresholdMb?: number
   ): Promise<{ success: boolean }> {
     return invoke("download_object", {
       accountIdx: accountId,
@@ -103,9 +100,6 @@ export const api = {
       key,
       savePath,
       taskId: taskId ?? null,
-      connections: connections ?? null,
-      partSizeMb: partSizeMb ?? null,
-      multipartThresholdMb: multipartThresholdMb ?? null,
     });
   },
 
@@ -116,9 +110,6 @@ export const api = {
     key: string,
     savePath: string,
     taskId?: string,
-    connections?: number,
-    partSizeMb?: number,
-    multipartThresholdMb?: number
   ): Promise<{ success: boolean; resumed_from?: number }> {
     return invoke("resume_download", {
       accountIdx: accountId,
@@ -126,9 +117,6 @@ export const api = {
       key,
       savePath,
       taskId: taskId ?? null,
-      connections: connections ?? null,
-      partSizeMb: partSizeMb ?? null,
-      multipartThresholdMb: multipartThresholdMb ?? null,
     });
   },
 

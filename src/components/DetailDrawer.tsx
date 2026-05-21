@@ -180,7 +180,7 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
       };
       setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey, retry }]);
       try {
-        await api.resumeDownload(accountId, bucket, currentKey, savePath, dlTaskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
+        await api.resumeDownload(accountId, bucket, currentKey, savePath, dlTaskId);
         setDownloads((prev) =>
           prev.map((d) => d.id === dlTaskId ? { ...d, progress: 100, status: "done" as const } : d)
         );
@@ -210,7 +210,7 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
       };
       setDownloads((prev) => [...prev, { id: dlTaskId, filename, progress: 0, status: "running" as const, size, savePath, key: currentKey, retry }]);
       try {
-        await api.download(accountId, bucket, currentKey, savePath, dlTaskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
+        await api.download(accountId, bucket, currentKey, savePath, dlTaskId);
         setDownloads((prev) =>
           prev.map((d) => d.id === dlTaskId ? { ...d, progress: 100, status: "done" as const } : d)
         );
@@ -242,7 +242,7 @@ export function DetailDrawer({ open, target, item, onClose, setDownloads, transf
     };
     setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key: currentKey, retry }]);
     try {
-      await api.download(accountId, bucket, item.key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
+      await api.download(accountId, bucket, item.key, savePath, taskId);
       setDownloads((prev) =>
         prev.map((d) => d.id === taskId ? { ...d, progress: 100, status: "done" as const } : d)
       );

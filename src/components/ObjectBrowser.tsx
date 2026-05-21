@@ -388,7 +388,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
     };
     setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key, retry }]);
     try {
-      await api.download(accountId, bucket, key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
+      await api.download(accountId, bucket, key, savePath, taskId);
       setDownloads((prev) =>
         prev.map((d) => d.id === taskId ? { ...d, progress: 100, status: "done" as const } : d)
       );
@@ -421,7 +421,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
     };
     setDownloads((prev) => [...prev, { id: taskId, filename, progress: 0, status: "running", size, savePath, key, retry }]);
     try {
-      await api.resumeDownload(accountId, bucket, key, savePath, taskId, transferConfig.download_connections, transferConfig.download_part_size, transferConfig.multipart_threshold);
+      await api.resumeDownload(accountId, bucket, key, savePath, taskId);
       setDownloads((prev) =>
         prev.map((d) => d.id === taskId ? { ...d, progress: 100, status: "done" as const } : d)
       );
