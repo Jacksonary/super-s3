@@ -126,7 +126,7 @@ jobs:
         run: |
           TAG="${{ steps.gh_release.outputs.tag }}"
           OWNER="weiguoliu"
-          REPO="super-s3-app"
+          REPO="super-s3"
 
           # Create Gitee Release
           RESPONSE=$(curl -s -X POST \

@@ -6,7 +6,7 @@ A cross-cloud object storage management desktop client compatible with any S3-co
 
 Built with [Tauri 2](https://v2.tauri.app/) + Rust + React. No Docker, no server deployment — just download and run.
 
-**Repository**: [GitHub](https://github.com/Jacksonary/super-s3-app) | [Gitee](https://gitee.com/weiguoliu/super-s3-app)
+**Repository**: [GitHub](https://github.com/Jacksonary/super-s3) | [Gitee](https://gitee.com/weiguoliu/super-s3)
 
 ## Screenshots
 
@@ -44,7 +44,7 @@ Built with [Tauri 2](https://v2.tauri.app/) + Rust + React. No Docker, no server
 
 ## Download
 
-Head to [GitHub Releases](https://github.com/Jacksonary/super-s3-app/releases) or [Gitee Releases](https://gitee.com/weiguoliu/super-s3-app/releases) to grab the installer for your platform:
+Head to [GitHub Releases](https://github.com/Jacksonary/super-s3/releases) or [Gitee Releases](https://gitee.com/weiguoliu/super-s3/releases) to grab the installer for your platform:
 
 | Platform | Format |
 |---|---|
@@ -112,8 +112,8 @@ Configuration format (YAML list — one entry per cloud account):
 # Linux: sudo apt install libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev
 # Tauri CLI: cargo install tauri-cli@^2
 
-git clone https://github.com/Jacksonary/super-s3-app.git
-cd super-s3-app
+git clone https://github.com/Jacksonary/super-s3.git
+cd super-s3
 npm install
 cargo tauri build
 ```

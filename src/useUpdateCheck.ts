@@ -12,7 +12,7 @@ const CACHE_KEY = "super-s3-update-check";
 const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
 // Set when the user deferred an install via "Later"; the launch-time install flow
 // in Sidebar owns the update check in that case, so the auto-check must stand down.
-const PENDING_UPDATE_KEY = "super-s3-app:install-update-on-launch";
+const PENDING_UPDATE_KEY = "super-s3:install-update-on-launch";
 
 export function useUpdateCheck(currentVersion: string, enabled: boolean = true) {
   const [state, setState] = useState<UpdateState>({ status: "idle" });

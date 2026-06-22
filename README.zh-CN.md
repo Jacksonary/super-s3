@@ -6,7 +6,7 @@
 
 基于 [Tauri 2](https://v2.tauri.app/) + Rust + React 构建，无需 Docker、无需部署服务器，双击即用。
 
-**仓库地址**：[GitHub](https://github.com/Jacksonary/super-s3-app) | [Gitee](https://gitee.com/weiguoliu/super-s3-app)
+**仓库地址**：[GitHub](https://github.com/Jacksonary/super-s3) | [Gitee](https://gitee.com/weiguoliu/super-s3)
 
 ## 界面预览
 
@@ -44,7 +44,7 @@
 
 ## 下载安装
 
-前往 [GitHub Releases](https://github.com/Jacksonary/super-s3-app/releases) 或 [Gitee Releases](https://gitee.com/weiguoliu/super-s3-app/releases) 页面下载对应平台的安装包：
+前往 [GitHub Releases](https://github.com/Jacksonary/super-s3/releases) 或 [Gitee Releases](https://gitee.com/weiguoliu/super-s3/releases) 页面下载对应平台的安装包：
 
 | 平台 | 格式 |
 |------|------|
@@ -111,8 +111,8 @@
 # Linux: sudo apt install libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev
 # Tauri CLI: cargo install tauri-cli@^2
 
-git clone https://github.com/Jacksonary/super-s3-app.git
-cd super-s3-app
+git clone https://github.com/Jacksonary/super-s3.git
+cd super-s3
 npm install
 cargo tauri build
 ```

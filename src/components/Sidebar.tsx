@@ -34,7 +34,7 @@ import { SettingsModal, type SettingsAction } from "./SettingsModal";
 
 const { Text } = Typography;
 
-const PENDING_UPDATE_KEY = "super-s3-app:install-update-on-launch";
+const PENDING_UPDATE_KEY = "super-s3:install-update-on-launch";
 
 interface Props {
   selected: SelectedBucket | null;
@@ -438,8 +438,8 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
         <Space size={4} align="center">
           <Tooltip title="GitHub">
             <a
-              onClick={() => openUrl("https://github.com/Jacksonary/super-s3-app")}
-              onKeyDown={(e) => e.key === "Enter" && openUrl("https://github.com/Jacksonary/super-s3-app")}
+              onClick={() => openUrl("https://github.com/Jacksonary/super-s3")}
+              onKeyDown={(e) => e.key === "Enter" && openUrl("https://github.com/Jacksonary/super-s3")}
               className="sidebar-icon-link"
               role="link"
               tabIndex={0}
@@ -451,8 +451,8 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
           </Tooltip>
           <Tooltip title="Gitee">
             <a
-              onClick={() => openUrl("https://gitee.com/weiguoliu/super-s3-app")}
-              onKeyDown={(e) => e.key === "Enter" && openUrl("https://gitee.com/weiguoliu/super-s3-app")}
+              onClick={() => openUrl("https://gitee.com/weiguoliu/super-s3")}
+              onKeyDown={(e) => e.key === "Enter" && openUrl("https://gitee.com/weiguoliu/super-s3")}
               className="sidebar-icon-link"
               role="link"
               tabIndex={0}

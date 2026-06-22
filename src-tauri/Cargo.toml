@@ -1,5 +1,5 @@
 [package]
-name = "super-s3-app"
+name = "super-s3"
 version = "1.0.0"
 edition = "2021"
 
