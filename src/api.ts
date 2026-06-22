@@ -263,10 +263,6 @@ export const api = {
     });
   },
 
-  checkUpdate(): Promise<{ latestVersion: string; releaseUrl: string }> {
-    return invoke("check_update");
-  },
-
   // ─── History ────────────────────────────────────────────────────────────
 
   getHistory(): Promise<HistoryEntry[]> {

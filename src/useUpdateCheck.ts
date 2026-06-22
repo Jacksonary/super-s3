@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { api } from "./api";
 
 export type UpdateState =
   | { status: "idle" }
@@ -11,34 +10,18 @@ export type UpdateState =
 
 const CACHE_KEY = "super-s3-update-check";
 const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
+// Set when the user deferred an install via "Later"; the launch-time install flow
+// in Sidebar owns the update check in that case, so the auto-check must stand down.
+const PENDING_UPDATE_KEY = "super-s3-app:install-update-on-launch";
 
-interface FallbackInfo {
-  latestVersion: string;
-  releaseUrl: string;
-}
-
-function parseVersion(v: string): number[] {
-  return v.replace(/^v/i, "").split(".").map(Number);
-}
-
-function isNewer(remote: string, local: string): boolean {
-  const r = parseVersion(remote);
-  const l = parseVersion(local);
-  for (let i = 0; i < Math.max(r.length, l.length); i++) {
-    const rv = r[i] ?? 0;
-    const lv = l[i] ?? 0;
-    if (rv > lv) return true;
-    if (rv < lv) return false;
-  }
-  return false;
-}
-
-export function useUpdateCheck(currentVersion: string) {
+export function useUpdateCheck(currentVersion: string, enabled: boolean = true) {
   const [state, setState] = useState<UpdateState>({ status: "idle" });
-  const [fallback, setFallback] = useState<FallbackInfo | null>(null);
   const [checking, setChecking] = useState(false);
+  const runningRef = useRef(false);
 
   const doCheck = async (skipCache = false): Promise<"up-to-date" | "error" | null> => {
+    if (runningRef.current) return null;
+
     if (!skipCache) {
       const cached = sessionStorage.getItem(CACHE_KEY);
       if (cached) {
@@ -49,6 +32,7 @@ export function useUpdateCheck(currentVersion: string) {
       }
     }
 
+    runningRef.current = true;
     setChecking(true);
     try {
       const update = await check();
@@ -59,31 +43,27 @@ export function useUpdateCheck(currentVersion: string) {
         return "up-to-date";
       }
     } catch {
-      try {
-        const info = await api.checkUpdate();
-        sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now() }));
-        if (isNewer(info.latestVersion, currentVersion)) {
-          setFallback(info);
-        } else if (skipCache) {
-          return "up-to-date";
-        }
-      } catch {
-        if (skipCache) return "error";
-      }
+      if (skipCache) return "error";
     } finally {
+      runningRef.current = false;
       setChecking(false);
     }
     return null;
   };
 
   useEffect(() => {
-    doCheck();
-  }, [currentVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!enabled) return;
+    // Defer to Sidebar's launch-time install flow when an update is pending,
+    // so the two paths don't run concurrent check() calls and clobber state.
+    let pending = false;
+    try { pending = localStorage.getItem(PENDING_UPDATE_KEY) === "1"; } catch { /* ignore */ }
+    if (!pending) doCheck();
+  }, [currentVersion, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recheck = async (): Promise<"up-to-date" | "error" | null> => {
     sessionStorage.removeItem(CACHE_KEY);
     return doCheck(true);
   };
 
-  return { state, setState, fallback, checking, recheck };
+  return { state, setState, checking, recheck };
 }

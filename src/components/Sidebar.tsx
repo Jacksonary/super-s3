@@ -26,12 +26,15 @@ import {
 } from "@ant-design/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { api } from "../api";
 import type { Account, SelectedBucket, TransferConfig } from "../types";
 import { useUpdateCheck, type UpdateState } from "../useUpdateCheck";
 import { SettingsModal, type SettingsAction } from "./SettingsModal";
 
 const { Text } = Typography;
+
+const PENDING_UPDATE_KEY = "super-s3-app:install-update-on-launch";
 
 interface Props {
   selected: SelectedBucket | null;
@@ -49,37 +52,112 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsAction, setSettingsAction] = useState<SettingsAction>(null);
   const [acctMenu, setAcctMenu] = useState<{ idx: number; name: string; x: number; y: number } | null>(null);
-  const { state: updateState, setState: setUpdateState, fallback, checking, recheck } = useUpdateCheck(__APP_VERSION__);
+  const { state: updateState, setState: setUpdateState, checking, recheck } = useUpdateCheck(__APP_VERSION__);
 
-  const updatingRef = useRef(false);
-  const updateRef = useRef(updateState.status === "available" ? updateState.update : null);
-  if (updateState.status === "available") updateRef.current = updateState.update;
+  const readyVersionRef = useRef<string>("");
+  const pendingUpdateRef = useRef<Update | null>(null);
+  const downloadingRef = useRef(false);
+  const modalOpenRef = useRef(false);
+
+  function showRestartModal(version: string) {
+    if (modalOpenRef.current) return;
+    modalOpenRef.current = true;
+    Modal.confirm({
+      title: "Update ready",
+      content: version
+        ? `Version ${version} has been downloaded. Restart now to apply the update, or continue working and restart later.`
+        : `An update has been downloaded. Restart now to apply it, or continue working and restart later.`,
+      okText: "Restart now",
+      cancelText: "Later",
+      onOk: async () => {
+        modalOpenRef.current = false;
+        if (pendingUpdateRef.current) {
+          try {
+            await pendingUpdateRef.current.install();
+          } catch (e) {
+            void message.error(`Install failed: ${String(e)}`);
+            return;
+          }
+        }
+        try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
+        void relaunch();
+      },
+      onCancel: () => {
+        modalOpenRef.current = false;
+        try { localStorage.setItem(PENDING_UPDATE_KEY, "1"); } catch { /* ignore */ }
+      },
+    });
+  }
 
   const handleUpdate = async () => {
-    if (updateState.status !== "available" || updatingRef.current) return;
-    updatingRef.current = true;
-    const update = updateRef.current!;
+    if (updateState.status !== "available" || downloadingRef.current) return;
+    downloadingRef.current = true;
+    const upd = updateState.update;
+    const version = updateState.version;
+    pendingUpdateRef.current = upd;
     let total = 0;
     let downloaded = 0;
+    setUpdateState({ status: "downloading", progress: 0 });
     try {
-      setUpdateState({ status: "downloading", progress: 0 });
-      await update.downloadAndInstall((e) => {
-        if (e.event === "Started" && e.data.contentLength) {
-          total = e.data.contentLength;
-        } else if (e.event === "Progress") {
-          downloaded += e.data.chunkLength;
+      await upd.download((evt) => {
+        if (evt.event === "Started" && evt.data.contentLength) {
+          total = evt.data.contentLength;
+        } else if (evt.event === "Progress") {
+          downloaded += evt.data.chunkLength;
           if (total > 0) setUpdateState({ status: "downloading", progress: Math.round((downloaded / total) * 100) });
         }
       });
+      readyVersionRef.current = version;
       setUpdateState({ status: "ready" });
-    } catch (err) {
-      updatingRef.current = false;
-      setUpdateState({ status: "error", message: String(err) });
+      showRestartModal(version);
+    } catch (e) {
+      setUpdateState({ status: "error", message: String(e) });
+    } finally {
+      downloadingRef.current = false;
     }
   };
 
+  // On launch, if the user previously chose "Later", finish the deferred install
+  // now (silently) before they start working. The in-memory Update handle does not
+  // survive a restart, so we re-check to obtain a fresh one, then download+install.
+  const launchInstallRan = useRef(false);
+  useEffect(() => {
+    if (launchInstallRan.current) return;
+    launchInstallRan.current = true;
+    let pending = false;
+    try { pending = localStorage.getItem(PENDING_UPDATE_KEY) === "1"; } catch { /* ignore */ }
+    if (!pending) return;
+
+    void (async () => {
+      try {
+        const upd = await check();
+        if (!upd) {
+          try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
+          return;
+        }
+        setUpdateState({ status: "downloading", progress: 0 });
+        let total = 0;
+        let downloaded = 0;
+        await upd.download((evt) => {
+          if (evt.event === "Started" && evt.data.contentLength) {
+            total = evt.data.contentLength;
+          } else if (evt.event === "Progress") {
+            downloaded += evt.data.chunkLength;
+            if (total > 0) setUpdateState({ status: "downloading", progress: Math.round((downloaded / total) * 100) });
+          }
+        });
+        await upd.install();
+        try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
+        void relaunch();
+      } catch (e) {
+        try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch { /* ignore */ }
+        setUpdateState({ status: "error", message: String(e) });
+      }
+    })();
+  }, [setUpdateState]);
+
   const retryCheck = () => {
-    updatingRef.current = false;
+    downloadingRef.current = false;
     setUpdateState({ status: "idle" });
     recheck();
   };
@@ -311,8 +389,8 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
           </div>
         ) : updateState.status === "ready" ? (
           <a
-            onClick={() => relaunch()}
-            onKeyDown={(e) => e.key === "Enter" && relaunch()}
+            onClick={() => showRestartModal(readyVersionRef.current)}
+            onKeyDown={(e) => e.key === "Enter" && showRestartModal(readyVersionRef.current)}
             className="update-badge"
             role="button"
             tabIndex={0}
@@ -320,7 +398,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
           >
             <span className="update-dot" />
             <Text style={{ fontSize: 11, color: token.colorSuccessText }}>
-              Update ready — restart now
+              Update ready — restart
             </Text>
           </a>
         ) : updateState.status === "error" ? (
@@ -334,22 +412,6 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
             >
               <Text style={{ fontSize: 11, color: token.colorErrorText }}>
                 Update failed — retry
-              </Text>
-            </a>
-          </Tooltip>
-        ) : fallback ? (
-          <Tooltip title={`v${fallback.latestVersion} available — click to open release`}>
-            <a
-              onClick={() => openUrl(fallback.releaseUrl)}
-              onKeyDown={(e) => e.key === "Enter" && openUrl(fallback.releaseUrl)}
-              className="update-badge"
-              role="link"
-              tabIndex={0}
-              style={{ cursor: "pointer", textDecoration: "none" }}
-            >
-              <span className="update-dot" />
-              <Text style={{ fontSize: 11, color: token.colorWarningText }}>
-                v{__APP_VERSION__} → v{fallback.latestVersion}
               </Text>
             </a>
           </Tooltip>
