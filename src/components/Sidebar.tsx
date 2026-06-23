@@ -375,7 +375,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
               style={{ cursor: "pointer", textDecoration: "none" }}
             >
               <span className="update-dot" />
-              <Text style={{ fontSize: 11, color: token.colorWarningText }}>
+              <Text style={{ fontSize: 11, color: token.colorWarningText }} ellipsis>
                 v{__APP_VERSION__} → v{updateState.version}
               </Text>
             </a>
@@ -397,7 +397,7 @@ export function Sidebar({ selected, onSelect, isDark, onThemeToggle, onTransferC
             style={{ cursor: "pointer", textDecoration: "none" }}
           >
             <span className="update-dot" />
-            <Text style={{ fontSize: 11, color: token.colorSuccessText }}>
+            <Text style={{ fontSize: 11, color: token.colorSuccessText }} ellipsis>
               Update ready — restart
             </Text>
           </a>
