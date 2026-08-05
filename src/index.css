@@ -275,16 +275,8 @@ body {
   opacity: 0.45 !important;
 }
 
-/* Row actions: hidden → visible on row hover */
-.obj-table .ant-table-row:hover .row-actions {
-  opacity: 1;
-  transform: translateX(0);
-}
-
 .row-actions {
-  opacity: 0;
-  transform: translateX(6px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  opacity: 1;
 }
 
 /* ─── Empty / Loading States ────────────────────────────────────────────────── */
@@ -483,5 +475,4 @@ body {
   .drop-overlay        { animation: none; }
   .update-dot          { animation: none; }
   .transfer-fab-btn    { transition: none !important; }
-  .row-actions         { transition: none; }
 }

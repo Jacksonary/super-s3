@@ -50,8 +50,14 @@
 |------|------|
 | Windows 64-bit | `.exe` (NSIS) / `.msi` |
 | Linux | `.deb` / `.rpm` / `.AppImage` |
+| macOS（仅支持 Apple Silicon / M 系列芯片） | `.dmg` |
 
 > Linux AppImage 无需安装，赋予执行权限后直接运行：`chmod +x Super\ S3_*.AppImage && ./Super\ S3_*.AppImage`
+
+> **macOS**：仅支持 Apple Silicon（M1/M2/M3/M4 等）芯片的 Mac，不提供 Intel 版本。由于未进行代码签名和公证，首次打开会被 Gatekeeper 提示"已损坏，无法打开"，执行以下命令去除隔离属性即可正常安装：
+> ```bash
+> xattr -cr "/Applications/Super S3.app"
+> ```
 
 ## 配置说明
 

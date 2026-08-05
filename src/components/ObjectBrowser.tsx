@@ -920,7 +920,7 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             />
           </Tooltip>
           {row.type === "file" && (
-            <Tooltip title="Rename">
+            <Tooltip title="Rename" placement="topRight">
               <Button
                 size="small"
                 type="text"
@@ -939,15 +939,14 @@ export function ObjectBrowser({ target, transferConfig, uploads, downloads, setU
             onConfirm={() => handleDeleteRowRef.current(row)}
             okText="Delete"
             okButtonProps={{ danger: true }}
+            placement="topRight"
           >
-            <Tooltip title="Delete">
-              <Button
-                size="small"
-                type="text"
-                danger
-                icon={<DeleteOutlined />}
-              />
-            </Tooltip>
+            <Button
+              size="small"
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+            />
           </Popconfirm>
         </Space>
       ),

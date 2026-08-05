@@ -50,9 +50,15 @@ Head to [GitHub Releases](https://github.com/Jacksonary/super-s3/releases) or [G
 |---|---|
 | Windows 64-bit | `.exe` (NSIS) / `.msi` |
 | Linux | `.deb` / `.rpm` / `.AppImage` |
+| macOS (Apple Silicon only) | `.dmg` |
 
 > For Linux AppImage, no installation is required — just make it executable and run:
 > `chmod +x Super\ S3_*.AppImage && ./Super\ S3_*.AppImage`
+
+> **macOS**: only Apple Silicon (M-series) Macs are supported; Intel Macs are not built. The app isn't code-signed/notarized, so Gatekeeper will report it as "damaged" on first launch. Remove the quarantine attribute to fix it:
+> ```bash
+> xattr -cr "/Applications/Super S3.app"
+> ```
 
 ## Configuration
 
