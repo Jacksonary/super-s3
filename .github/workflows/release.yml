@@ -19,6 +19,9 @@ jobs:
             target: linux
           - platform: windows-latest
             target: windows
+          - platform: macos-latest
+            target: macos
+            rustTarget: aarch64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
 
@@ -37,11 +40,14 @@ jobs:
           # src-tauri/tauri.conf.json
           jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
 
-          # src-tauri/Cargo.toml
-          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+          # src-tauri/Cargo.toml (portable between GNU sed and BSD/macOS sed)
+          sed -i.bak "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+          rm -f src-tauri/Cargo.toml.bak
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTarget }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -80,6 +86,7 @@ jobs:
           releaseBody: "See the assets to download the installer for your platform."
           releaseDraft: false
           prerelease: false
+          args: ${{ matrix.rustTarget && format('--target {0}', matrix.rustTarget) || '' }}
 
   sync-to-gitee:
     needs: build
