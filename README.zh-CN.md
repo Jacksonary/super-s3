@@ -1,5 +1,9 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="./src-tauri/icons/icon.png" width="96" height="96" alt="Super S3 Logo" />
+</p>
+
 # Super S3 Desktop
 
 多云对象存储管理桌面客户端，支持 AWS S3、华为云 OBS、阿里云 OSS、火山云 TOS、百度云 BOS、腾讯云 COS、七牛云 Kodo、MinIO 等所有 S3 兼容协议的对象存储服务。

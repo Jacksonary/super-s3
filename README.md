@@ -1,5 +1,9 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="./src-tauri/icons/icon.png" width="96" height="96" alt="Super S3 Logo" />
+</p>
+
 # Super S3 Desktop
 
 A cross-cloud object storage management desktop client compatible with any S3-compliant service — including AWS S3, Huawei Cloud OBS, Alibaba Cloud OSS, Volcengine TOS, Baidu Cloud BOS, Tencent Cloud COS, Qiniu Kodo, MinIO, and more.
